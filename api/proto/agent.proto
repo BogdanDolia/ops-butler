@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package agent;
+
+option go_package = "github.com/BogdanDolia/ops-butler/api/proto/agent";
+
+service AgentService {
+  // Register registers an agent with the server
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  
+  // Heartbeat sends a heartbeat to the server
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  
+  // ExecuteTask executes a task on the agent
+  rpc ExecuteTask(ExecuteTaskRequest) returns (stream ExecuteTaskResponse);
+  
+  // GetTaskStatus gets the status of a task
+  rpc GetTaskStatus(TaskStatusRequest) returns (TaskStatusResponse);
+  
+  // CancelTask cancels a running task
+  rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+}
+
+// RegisterRequest is sent by an agent to register with the server
+message RegisterRequest {
+  string name = 1;
+  map<string, string> labels = 2;
+  string version = 3;
+}
+
+// RegisterResponse is sent by the server in response to a register request
+message RegisterResponse {
+  string agent_id = 1;
+  bool success = 2;
+  string error = 3;
+}
+
+// HeartbeatRequest is sent by an agent to indicate it's still alive
+message HeartbeatRequest {
+  string agent_id = 1;
+  map<string, string> labels = 2;
+  string status = 3;
+}
+
+// HeartbeatResponse is sent by the server in response to a heartbeat
+message HeartbeatResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// ExecuteTaskRequest is sent by the server to execute a task on an agent
+message ExecuteTaskRequest {
+  string task_id = 1;
+  string script = 2;
+  map<string, string> params = 3;
+  int32 timeout_seconds = 4;
+}
+
+// ExecuteTaskResponse is streamed by the agent during task execution
+message ExecuteTaskResponse {
+  string task_id = 1;
+  string chunk = 2;
+  string stream = 3; // stdout or stderr
+  int64 timestamp = 4;
+  int32 sequence = 5;
+  bool completed = 6;
+  int32 exit_code = 7;
+  string error = 8;
+}
+
+// TaskStatusRequest is sent by the server to get the status of a task
+message TaskStatusRequest {
+  string task_id = 1;
+}
+
+// TaskStatusResponse is sent by the agent in response to a status request
+message TaskStatusResponse {
+  string task_id = 1;
+  string status = 2;
+  int64 start_time = 3;
+  int64 end_time = 4;
+  int32 exit_code = 5;
+  string error = 6;
+}
+
+// CancelTaskRequest is sent by the server to cancel a running task
+message CancelTaskRequest {
+  string task_id = 1;
+}
+
+// CancelTaskResponse is sent by the agent in response to a cancel request
+message CancelTaskResponse {
+  string task_id = 1;
+  bool success = 2;
+  string error = 3;
+}

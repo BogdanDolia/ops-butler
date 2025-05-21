@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-portal-scheduler
+  namespace: ops-portal
+  labels:
+    app: ops-portal-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ops-portal-scheduler
+  template:
+    metadata:
+      labels:
+        app: ops-portal-scheduler
+    spec:
+      containers:
+      - name: scheduler
+        image: ops-portal-scheduler:dev
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: DB_HOST
+          value: ops-portal-db
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_USER
+          value: postgres
+        - name: DB_PASSWORD
+          value: postgres
+        - name: DB_NAME
+          value: ops_portal
+        - name: API_SERVER
+          value: ops-portal-api:9090
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
