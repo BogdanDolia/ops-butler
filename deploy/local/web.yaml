@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-portal-web
+  namespace: ops-portal
+  labels:
+    app: ops-portal-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ops-portal-web
+  template:
+    metadata:
+      labels:
+        app: ops-portal-web
+    spec:
+      containers:
+      - name: web
+        image: ops-portal-web:dev
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: API_URL
+          value: http://ops-portal-api:8080
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops-portal-web
+  namespace: ops-portal
+  labels:
+    app: ops-portal-web
+spec:
+  selector:
+    app: ops-portal-web
+  ports:
+  - port: 80
+    targetPort: http
+    name: http
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops-portal-web-nodeport
+  namespace: ops-portal
+  labels:
+    app: ops-portal-web
+spec:
+  selector:
+    app: ops-portal-web
+  ports:
+  - port: 80
+    targetPort: http
+    nodePort: 30080
+    name: http
+  type: NodePort

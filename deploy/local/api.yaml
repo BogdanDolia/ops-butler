@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-portal-api
+  namespace: ops-portal
+  labels:
+    app: ops-portal-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ops-portal-api
+  template:
+    metadata:
+      labels:
+        app: ops-portal-api
+    spec:
+      containers:
+      - name: api
+        image: ops-portal-api:dev
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 9090
+          name: grpc
+        env:
+        - name: DB_HOST
+          value: ops-portal-db
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_USER
+          value: postgres
+        - name: DB_PASSWORD
+          value: postgres
+        - name: DB_NAME
+          value: ops_portal
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops-portal-api
+  namespace: ops-portal
+  labels:
+    app: ops-portal-api
+spec:
+  selector:
+    app: ops-portal-api
+  ports:
+  - port: 8080
+    targetPort: http
+    name: http
+  - port: 9090
+    targetPort: grpc
+    name: grpc
+  type: ClusterIP

@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-portal-agent
+  namespace: ops-portal
+  labels:
+    app: ops-portal-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ops-portal-agent
+  template:
+    metadata:
+      labels:
+        app: ops-portal-agent
+    spec:
+      serviceAccountName: ops-portal-agent
+      containers:
+      - name: agent
+        image: ops-portal-agent:dev
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: API_SERVER
+          value: ops-portal-api:9090
+        - name: CLUSTER_NAME
+          value: local-dev
+        - name: CLUSTER_LABELS
+          value: env=dev,region=local
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ops-portal-agent
+  namespace: ops-portal
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ops-portal-agent
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ops-portal-agent
+subjects:
+- kind: ServiceAccount
+  name: ops-portal-agent
+  namespace: ops-portal
+roleRef:
+  kind: ClusterRole
+  name: ops-portal-agent
+  apiGroup: rbac.authorization.k8s.io
