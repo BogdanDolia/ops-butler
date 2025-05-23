@@ -16,9 +16,13 @@ spec:
         app: ops-portal-agent
     spec:
       serviceAccountName: ops-portal-agent
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoSchedule"
       containers:
       - name: agent
-        image: ops-portal-agent:dev
+        image: crcoerph/ops-butler:agent-latest
         imagePullPolicy: IfNotPresent
         env:
         - name: API_SERVER

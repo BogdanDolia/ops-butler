@@ -15,9 +15,13 @@ spec:
       labels:
         app: ops-portal-web
     spec:
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoSchedule"
       containers:
       - name: web
-        image: ops-portal-web:dev
+        image: crcoerph/ops-butler:web-latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000

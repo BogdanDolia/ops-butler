@@ -44,6 +44,12 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        system-reserved: memory=2Gi,cpu=1
   extraPortMappings:
   - containerPort: 30080
     hostPort: 8080
@@ -51,6 +57,13 @@ nodes:
   - containerPort: 30443
     hostPort: 8443
     protocol: TCP
+- role: worker
+  kubeadmConfigPatches:
+  - |
+    kind: JoinConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        system-reserved: memory=2Gi,cpu=1
 EOF
     echo "✅ Kind cluster 'ops-portal' created successfully!"
 fi

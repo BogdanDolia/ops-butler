@@ -16,6 +16,10 @@ spec:
       labels:
         app: ops-portal-db
     spec:
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoSchedule"
       containers:
       - name: postgres
         image: postgres:13

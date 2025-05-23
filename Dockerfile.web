@@ -1,0 +1,41 @@
+# Build stage
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package.json and package-lock.json
+COPY web/src/package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the source code
+COPY web/src/ ./
+
+# Build the application
+RUN npm run build
+
+# Production stage
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package.json and package-lock.json
+COPY --from=builder /app/package*.json ./
+
+# Install production dependencies only
+RUN npm install --production
+
+# Copy the build output from the builder stage
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/next.config.js ./
+
+# Expose the port
+EXPOSE 3000
+
+# Set environment variables
+ENV NODE_ENV=production
+
+# Run the application
+CMD ["npm", "start"]

@@ -15,9 +15,13 @@ spec:
       labels:
         app: ops-portal-scheduler
     spec:
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoSchedule"
       containers:
       - name: scheduler
-        image: ops-portal-scheduler:dev
+        image: crcoerph/ops-butler:scheduler-latest
         imagePullPolicy: IfNotPresent
         env:
         - name: DB_HOST
@@ -32,6 +36,8 @@ spec:
           value: ops_portal
         - name: API_SERVER
           value: ops-portal-api:9090
+        - name: REDIS_URL
+          value: ops-portal-redis:6379
         resources:
           limits:
             cpu: 200m

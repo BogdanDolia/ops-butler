@@ -44,8 +44,8 @@ func NewScheduler(config *Config, logger *zap.Logger, db *gorm.DB) (*Scheduler, 
 	}
 
 	// Create repositories
-	taskRepo := database.TaskRepository(db)
-	reminderRepo := database.ReminderRepository(db)
+	taskRepo := database.NewTaskRepository(db)
+	reminderRepo := database.NewReminderRepository(db)
 
 	return &Scheduler{
 		config:    config,
@@ -86,6 +86,16 @@ func (s *Scheduler) Stop() error {
 	// Close Redis connection
 	if err := s.redis.Close(); err != nil {
 		s.logger.Error("Failed to close Redis connection", zap.Error(err))
+	}
+
+	// Close task repository
+	if err := s.tasks.Close(); err != nil {
+		s.logger.Error("Failed to close task repository", zap.Error(err))
+	}
+
+	// Close reminder repository
+	if err := s.reminders.Close(); err != nil {
+		s.logger.Error("Failed to close reminder repository", zap.Error(err))
 	}
 
 	s.logger.Info("Scheduler stopped")

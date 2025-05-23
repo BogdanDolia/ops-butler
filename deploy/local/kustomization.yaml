@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - db.yaml
+  - redis.yaml
   - api.yaml
   - scheduler.yaml
   - agent.yaml
