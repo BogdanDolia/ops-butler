@@ -137,6 +137,8 @@ func (s *Server) setupRoutes() {
 		{
 			agents.GET("", s.handleListAgents)
 			agents.GET("/:id", s.handleGetAgent)
+			agents.POST("/register", s.handleRegisterAgent)
+			agents.POST("/heartbeat", s.handleAgentHeartbeat)
 		}
 
 		// WebSocket for real-time logs
@@ -536,4 +538,130 @@ func (s *Server) handleGetAgent(c *gin.Context) {
 func (s *Server) handleWebSocketLogs(c *gin.Context) {
 	// TODO: Implement WebSocket handler
 	c.JSON(http.StatusOK, gin.H{"message": "WebSocket logs"})
+}
+
+// handleRegisterAgent handles agent registration
+func (s *Server) handleRegisterAgent(c *gin.Context) {
+	var request struct {
+		Name        string                 `json:"name" binding:"required"`
+		ClusterName string                 `json:"cluster_name" binding:"required"`
+		Labels      map[string]interface{} `json:"labels"`
+		Version     string                 `json:"version"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		s.logger.Error("Failed to bind request", zap.Error(err))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	// Check if agent already exists
+	existingAgent, err := s.agents.GetByName(c.Request.Context(), request.Name+"-"+request.ClusterName)
+	if err != nil && err != database.ErrNotFound {
+		s.logger.Error("Failed to check for existing agent", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check for existing agent"})
+		return
+	}
+
+	// If agent exists, return its ID
+	if existingAgent != nil {
+		// Update the agent's status and last heartbeat
+		existingAgent.Status = "active"
+		existingAgent.LastHeartbeat = time.Now()
+		existingAgent.Labels = models.JSONSchema(request.Labels)
+		existingAgent.Version = request.Version
+
+		if err := s.agents.Update(c.Request.Context(), existingAgent); err != nil {
+			s.logger.Error("Failed to update existing agent", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update existing agent"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"agent_id": existingAgent.ID,
+			"message":  "Agent already registered",
+		})
+		return
+	}
+
+	// Create a new agent
+	agent := &models.ClusterAgent{
+		Name:          request.Name + "-" + request.ClusterName,
+		Labels:        models.JSONSchema(request.Labels),
+		LastHeartbeat: time.Now(),
+		Status:        "active",
+		Version:       request.Version,
+	}
+
+	if err := s.agents.Create(c.Request.Context(), agent); err != nil {
+		s.logger.Error("Failed to create agent", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create agent"})
+		return
+	}
+
+	s.logger.Info("Agent registered",
+		zap.String("name", agent.Name),
+		zap.Any("labels", agent.Labels),
+		zap.Uint("id", agent.ID))
+
+	c.JSON(http.StatusOK, gin.H{
+		"agent_id": agent.ID,
+		"message":  "Agent registered successfully",
+	})
+}
+
+// handleAgentHeartbeat handles agent heartbeats
+func (s *Server) handleAgentHeartbeat(c *gin.Context) {
+	var request struct {
+		AgentID string                 `json:"agent_id" binding:"required"`
+		Labels  map[string]interface{} `json:"labels"`
+		Status  string                 `json:"status" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		s.logger.Error("Failed to bind request", zap.Error(err))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	// Parse agent ID
+	var agentID uint
+	if _, err := fmt.Sscanf(request.AgentID, "%d", &agentID); err != nil {
+		// Try to get agent by name
+		agent, err := s.agents.GetByName(c.Request.Context(), request.AgentID)
+		if err != nil {
+			s.logger.Error("Failed to get agent by name", zap.Error(err), zap.String("name", request.AgentID))
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent ID or name"})
+			return
+		}
+		agentID = agent.ID
+	}
+
+	// Get agent from database
+	agent, err := s.agents.GetByID(c.Request.Context(), agentID)
+	if err != nil {
+		s.logger.Error("Failed to get agent", zap.Error(err), zap.Uint("agent_id", agentID))
+		c.JSON(http.StatusNotFound, gin.H{"error": "Agent not found"})
+		return
+	}
+
+	// Update agent status and last heartbeat
+	agent.Status = request.Status
+	agent.LastHeartbeat = time.Now()
+	if request.Labels != nil {
+		agent.Labels = models.JSONSchema(request.Labels)
+	}
+
+	if err := s.agents.Update(c.Request.Context(), agent); err != nil {
+		s.logger.Error("Failed to update agent", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update agent"})
+		return
+	}
+
+	s.logger.Debug("Heartbeat received",
+		zap.Uint("agent_id", agent.ID),
+		zap.String("name", agent.Name),
+		zap.String("status", agent.Status))
+
+	c.JSON(http.StatusOK, gin.H{"message": "Heartbeat received"})
 }

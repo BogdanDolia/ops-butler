@@ -16,6 +16,9 @@ export default function Home() {
           <Link href="/create-task" className="bg-green-500 hover:bg-green-700 text-white font-bold py-4 px-6 rounded text-center">
               Create Task
           </Link>
+          <Link href="/agents" className="bg-purple-500 hover:bg-purple-700 text-white font-bold py-4 px-6 rounded text-center">
+              View Agents
+          </Link>
         </div>
       </div>
     </div>

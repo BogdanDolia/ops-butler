@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -151,8 +154,52 @@ func (a *Agent) register() error {
 	// a.agentID = resp.AgentId
 	// a.logger.Info("Registered with server", zap.String("agent_id", a.agentID))
 
-	// For now, just use the name and cluster name as the ID
-	a.agentID = fmt.Sprintf("%s-%s", a.config.Name, a.config.ClusterName)
+	// For now, use the REST API to register
+	url := fmt.Sprintf("http://%s/api/v1/agents/register", a.config.ServerAddress)
+
+	// Prepare request body
+	reqBody := map[string]interface{}{
+		"name":         a.config.Name,
+		"cluster_name": a.config.ClusterName,
+		"labels":       a.config.Labels,
+		"version":      "1.0.0", // Hardcoded for now
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Send request
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return fmt.Errorf("failed to register with server: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Check response status
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("registration failed: %s", string(body))
+	}
+
+	// Parse response
+	var response struct {
+		AgentID uint   `json:"agent_id"`
+		Message string `json:"message"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	// Set agent ID
+	a.agentID = fmt.Sprintf("%d", response.AgentID)
 	a.logger.Info("Registered with server",
 		zap.String("agent_id", a.agentID),
 		zap.String("cluster_name", a.config.ClusterName),
@@ -203,7 +250,39 @@ func (a *Agent) sendHeartbeat() error {
 	//     return fmt.Errorf("heartbeat failed: %s", resp.Error)
 	// }
 
-	// For now, just log the heartbeat
+	// For now, use the REST API to send heartbeat
+	url := fmt.Sprintf("http://%s/api/v1/agents/heartbeat", a.config.ServerAddress)
+
+	// Prepare request body
+	reqBody := map[string]interface{}{
+		"agent_id": a.agentID,
+		"labels":   a.config.Labels,
+		"status":   "healthy",
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Send request
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return fmt.Errorf("failed to send heartbeat to server: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Check response status
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("heartbeat failed: %s", string(body))
+	}
+
 	a.logger.Info("Heartbeat sent successfully")
 
 	return nil

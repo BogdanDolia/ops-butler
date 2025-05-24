@@ -21,7 +21,7 @@ spec:
         effect: "NoSchedule"
       containers:
       - name: web
-        image: crcoerph/ops-butler:web-v0.0.1-08
+        image: crcoerph/ops-butler:web-v0.0.1-09
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
