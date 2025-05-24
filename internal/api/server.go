@@ -13,8 +13,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
+	"github.com/BogdanDolia/ops-butler/internal/chatops"
 	"github.com/BogdanDolia/ops-butler/internal/config"
 	"github.com/BogdanDolia/ops-butler/internal/database"
+	"github.com/BogdanDolia/ops-butler/internal/models"
 )
 
 // Server represents the API server
@@ -25,6 +27,9 @@ type Server struct {
 	logger     *zap.Logger
 	db         *database.GormRepository
 	templates  database.TemplateRepository
+	tasks      database.TaskRepository
+	agents     database.AgentRepository
+	chatops    *chatops.Service
 	// Add other repositories as needed
 }
 
@@ -56,6 +61,10 @@ func NewServer(cfg *config.Config, log *zap.Logger, db *database.GormRepository)
 	// Initialize repositories
 	server.initRepositories(db)
 
+	// TODO: Initialize chatops service
+	// In a real implementation, we would initialize the chatops service here
+	// server.chatops = chatops.NewService(cfg.ChatOps, log)
+
 	// Set up middleware
 	server.setupMiddleware()
 
@@ -69,6 +78,8 @@ func NewServer(cfg *config.Config, log *zap.Logger, db *database.GormRepository)
 func (s *Server) initRepositories(db *database.GormRepository) {
 	// Initialize repositories
 	s.templates = database.NewTemplateRepository(db.DB())
+	s.tasks = database.NewTaskRepository(db.DB())
+	s.agents = database.NewAgentRepository(db.DB())
 	// Initialize other repositories as needed
 }
 
@@ -126,6 +137,8 @@ func (s *Server) setupRoutes() {
 		{
 			agents.GET("", s.handleListAgents)
 			agents.GET("/:id", s.handleGetAgent)
+			agents.POST("/register", s.handleRegisterAgent)
+			agents.POST("/heartbeat", s.handleAgentHeartbeat)
 		}
 
 		// WebSocket for real-time logs
@@ -295,8 +308,33 @@ func (s *Server) handleGetTask(c *gin.Context) {
 }
 
 func (s *Server) handleCreateTask(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Create task"})
+	var task models.TaskInstance
+	if err := c.ShouldBindJSON(&task); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Set default values if not provided
+	if task.State == "" {
+		task.State = models.TaskStatePending
+	}
+	if task.Origin == "" {
+		task.Origin = models.TaskOriginWeb
+	}
+
+	// Set agent_id to nil to avoid foreign key constraint violation
+	// This is a temporary fix until we implement proper agent validation
+	task.AgentID = nil
+
+	// Create the task
+	err := s.tasks.Create(c.Request.Context(), &task)
+	if err != nil {
+		s.logger.Error("Failed to create task", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create task"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, task)
 }
 
 func (s *Server) handleUpdateTask(c *gin.Context) {
@@ -310,26 +348,320 @@ func (s *Server) handleDeleteTask(c *gin.Context) {
 }
 
 func (s *Server) handleExecuteTask(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Execute task"})
+	// Get task ID from URL
+	taskID := c.Param("id")
+	if taskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Task ID is required"})
+		return
+	}
+
+	// Convert task ID to uint
+	var id uint
+	if _, err := fmt.Sscanf(taskID, "%d", &id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid task ID"})
+		return
+	}
+
+	// Get task from database
+	task, err := s.tasks.GetByID(c.Request.Context(), id)
+	if err != nil {
+		s.logger.Error("Failed to get task", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get task"})
+		return
+	}
+
+	// Check if task is a "check logs" task
+	if task.TaskType == models.TaskTypeCheckLogs {
+		// Get pod name and namespace from task parameters
+		podName, ok := task.Params["podName"].(string)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Pod name is required"})
+			return
+		}
+
+		namespace, ok := task.Params["namespace"].(string)
+		if !ok {
+			namespace = "default" // Default namespace
+		}
+
+		// Update task state
+		task.State = models.TaskStateRunning
+		if err := s.tasks.Update(c.Request.Context(), task); err != nil {
+			s.logger.Error("Failed to update task state", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update task state"})
+			return
+		}
+
+		// TODO: Implement logic to get logs from the pod
+		// For now, we'll just simulate getting logs
+		logs := fmt.Sprintf("Simulated logs for pod %s in namespace %s\n", podName, namespace)
+		for i := 1; i <= 40; i++ {
+			logs += fmt.Sprintf("Log line %d: This is a simulated log line\n", i)
+		}
+
+		// Create a reminder for the task
+		reminder := &models.Reminder{
+			TaskID:   task.ID,
+			ChatAt:   time.Now(),
+			State:    models.ReminderStatePending,
+			ChatType: task.Params["chatType"].(string),
+			ChatID:   task.Params["chatId"].(string),
+		}
+
+		// TODO: Create a reminder repository and use it to create the reminder
+		// For now, we'll just simulate creating a reminder
+		s.logger.Info("Simulating creating a reminder", zap.Any("reminder", reminder))
+
+		// TODO: Use the chatops service to send a notification with a button to check logs
+		// In a real implementation, we would use the chatops service to send a notification
+		// with a button to check logs. When the button is clicked, it would display the logs.
+		// For example:
+		// s.chatops.SendReminderMessage(reminder.ChatType, reminder.ChatID,
+		//    fmt.Sprintf("Check logs for pod %s in namespace %s", podName, namespace), task.ID)
+
+		// Update task state
+		task.State = models.TaskStateCompleted
+		task.CompletedAt = &time.Time{}
+		*task.CompletedAt = time.Now()
+		if err := s.tasks.Update(c.Request.Context(), task); err != nil {
+			s.logger.Error("Failed to update task state", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update task state"})
+			return
+		}
+
+		// Return the logs
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Task executed successfully",
+			"logs":    logs,
+		})
+		return
+	}
+
+	// For other task types, just return a success message
+	c.JSON(http.StatusOK, gin.H{"message": "Task executed successfully"})
 }
 
 func (s *Server) handleGetTaskLogs(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Get task logs"})
+	// Get task ID from URL
+	taskID := c.Param("id")
+	if taskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Task ID is required"})
+		return
+	}
+
+	// Convert task ID to uint
+	var id uint
+	if _, err := fmt.Sscanf(taskID, "%d", &id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid task ID"})
+		return
+	}
+
+	// Get task from database
+	task, err := s.tasks.GetByID(c.Request.Context(), id)
+	if err != nil {
+		s.logger.Error("Failed to get task", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get task"})
+		return
+	}
+
+	// Check if task is a "check logs" task
+	if task.TaskType == models.TaskTypeCheckLogs {
+		// Get pod name and namespace from task parameters
+		podName, ok := task.Params["podName"].(string)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Pod name is required"})
+			return
+		}
+
+		namespace, ok := task.Params["namespace"].(string)
+		if !ok {
+			namespace = "default" // Default namespace
+		}
+
+		// TODO: Implement logic to get logs from the pod
+		// For now, we'll just simulate getting logs
+		logs := fmt.Sprintf("Simulated logs for pod %s in namespace %s\n", podName, namespace)
+		for i := 1; i <= 40; i++ {
+			logs += fmt.Sprintf("Log line %d: This is a simulated log line\n", i)
+		}
+
+		// Return the logs
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Task logs retrieved successfully",
+			"logs":    logs,
+		})
+		return
+	}
+
+	// For other task types, just return a success message
+	c.JSON(http.StatusOK, gin.H{"message": "Task logs retrieved successfully"})
 }
 
 func (s *Server) handleListAgents(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "List agents"})
+	// Get agents from the repository
+	agents, err := s.agents.List(c.Request.Context(), 0, 10)
+	if err != nil {
+		s.logger.Error("Failed to list agents", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list agents"})
+		return
+	}
+
+	c.JSON(http.StatusOK, agents)
 }
 
 func (s *Server) handleGetAgent(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Get agent"})
+	// Get agent ID from URL
+	agentID := c.Param("id")
+	if agentID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Agent ID is required"})
+		return
+	}
+
+	// Convert agent ID to uint
+	var id uint
+	if _, err := fmt.Sscanf(agentID, "%d", &id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent ID"})
+		return
+	}
+
+	// Get agent from repository
+	agent, err := s.agents.GetByID(c.Request.Context(), id)
+	if err != nil {
+		s.logger.Error("Failed to get agent", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get agent"})
+		return
+	}
+
+	c.JSON(http.StatusOK, agent)
 }
 
 func (s *Server) handleWebSocketLogs(c *gin.Context) {
 	// TODO: Implement WebSocket handler
 	c.JSON(http.StatusOK, gin.H{"message": "WebSocket logs"})
+}
+
+// handleRegisterAgent handles agent registration
+func (s *Server) handleRegisterAgent(c *gin.Context) {
+	var request struct {
+		Name        string                 `json:"name" binding:"required"`
+		ClusterName string                 `json:"cluster_name" binding:"required"`
+		Labels      map[string]interface{} `json:"labels"`
+		Version     string                 `json:"version"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		s.logger.Error("Failed to bind request", zap.Error(err))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	// Check if agent already exists
+	existingAgent, err := s.agents.GetByName(c.Request.Context(), request.Name+"-"+request.ClusterName)
+	if err != nil && err != database.ErrNotFound {
+		s.logger.Error("Failed to check for existing agent", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check for existing agent"})
+		return
+	}
+
+	// If agent exists, return its ID
+	if existingAgent != nil {
+		// Update the agent's status and last heartbeat
+		existingAgent.Status = "active"
+		existingAgent.LastHeartbeat = time.Now()
+		existingAgent.Labels = models.JSONSchema(request.Labels)
+		existingAgent.Version = request.Version
+
+		if err := s.agents.Update(c.Request.Context(), existingAgent); err != nil {
+			s.logger.Error("Failed to update existing agent", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update existing agent"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"agent_id": existingAgent.ID,
+			"message":  "Agent already registered",
+		})
+		return
+	}
+
+	// Create a new agent
+	agent := &models.ClusterAgent{
+		Name:          request.Name + "-" + request.ClusterName,
+		Labels:        models.JSONSchema(request.Labels),
+		LastHeartbeat: time.Now(),
+		Status:        "active",
+		Version:       request.Version,
+	}
+
+	if err := s.agents.Create(c.Request.Context(), agent); err != nil {
+		s.logger.Error("Failed to create agent", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create agent"})
+		return
+	}
+
+	s.logger.Info("Agent registered",
+		zap.String("name", agent.Name),
+		zap.Any("labels", agent.Labels),
+		zap.Uint("id", agent.ID))
+
+	c.JSON(http.StatusOK, gin.H{
+		"agent_id": agent.ID,
+		"message":  "Agent registered successfully",
+	})
+}
+
+// handleAgentHeartbeat handles agent heartbeats
+func (s *Server) handleAgentHeartbeat(c *gin.Context) {
+	var request struct {
+		AgentID string                 `json:"agent_id" binding:"required"`
+		Labels  map[string]interface{} `json:"labels"`
+		Status  string                 `json:"status" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		s.logger.Error("Failed to bind request", zap.Error(err))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	// Parse agent ID
+	var agentID uint
+	if _, err := fmt.Sscanf(request.AgentID, "%d", &agentID); err != nil {
+		// Try to get agent by name
+		agent, err := s.agents.GetByName(c.Request.Context(), request.AgentID)
+		if err != nil {
+			s.logger.Error("Failed to get agent by name", zap.Error(err), zap.String("name", request.AgentID))
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent ID or name"})
+			return
+		}
+		agentID = agent.ID
+	}
+
+	// Get agent from database
+	agent, err := s.agents.GetByID(c.Request.Context(), agentID)
+	if err != nil {
+		s.logger.Error("Failed to get agent", zap.Error(err), zap.Uint("agent_id", agentID))
+		c.JSON(http.StatusNotFound, gin.H{"error": "Agent not found"})
+		return
+	}
+
+	// Update agent status and last heartbeat
+	agent.Status = request.Status
+	agent.LastHeartbeat = time.Now()
+	if request.Labels != nil {
+		agent.Labels = models.JSONSchema(request.Labels)
+	}
+
+	if err := s.agents.Update(c.Request.Context(), agent); err != nil {
+		s.logger.Error("Failed to update agent", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update agent"})
+		return
+	}
+
+	s.logger.Debug("Heartbeat received",
+		zap.Uint("agent_id", agent.ID),
+		zap.String("name", agent.Name),
+		zap.String("status", agent.Status))
+
+	c.JSON(http.StatusOK, gin.H{"message": "Heartbeat received"})
 }
