@@ -1,20 +1,20 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: ops-portal-db
-  namespace: ops-portal
+  name: ops-butler-db
+  namespace: ops-butler
   labels:
-    app: ops-portal-db
+    app: ops-butler-db
 spec:
-  serviceName: ops-portal-db
+  serviceName: ops-butler-db
   replicas: 1
   selector:
     matchLabels:
-      app: ops-portal-db
+      app: ops-butler-db
   template:
     metadata:
       labels:
-        app: ops-portal-db
+        app: ops-butler-db
     spec:
       tolerations:
       - key: "node.kubernetes.io/not-ready"
@@ -55,13 +55,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ops-portal-db
-  namespace: ops-portal
+  name: ops-butler-db
+  namespace: ops-butler
   labels:
-    app: ops-portal-db
+    app: ops-butler-db
 spec:
   selector:
-    app: ops-portal-db
+    app: ops-butler-db
   ports:
   - port: 5432
     targetPort: postgres

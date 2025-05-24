@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ops-portal-api
-  namespace: ops-portal
+  name: ops-butler-api
+  namespace: ops-butler
   labels:
-    app: ops-portal-api
+    app: ops-butler-api
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ops-portal-api
+      app: ops-butler-api
   template:
     metadata:
       labels:
-        app: ops-portal-api
+        app: ops-butler-api
     spec:
       tolerations:
       - key: "node.kubernetes.io/not-ready"
@@ -21,8 +21,8 @@ spec:
         effect: "NoSchedule"
       containers:
       - name: api
-        image: crcoerph/ops-butler:api-latest
-        imagePullPolicy: IfNotPresent
+        image: crcoerph/ops-butler:api-v0.0.1-09
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
           name: http
@@ -30,7 +30,7 @@ spec:
           name: grpc
         env:
         - name: DB_HOST
-          value: ops-portal-db
+          value: ops-butler-db
         - name: DB_PORT
           value: "5432"
         - name: DB_USER
@@ -50,13 +50,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ops-portal-api
-  namespace: ops-portal
+  name: ops-butler-api
+  namespace: ops-butler
   labels:
-    app: ops-portal-api
+    app: ops-butler-api
 spec:
   selector:
-    app: ops-portal-api
+    app: ops-butler-api
   ports:
   - port: 8080
     targetPort: http

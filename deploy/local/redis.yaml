@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ops-portal-redis
-  namespace: ops-portal
+  name: ops-butler-redis
+  namespace: ops-butler
   labels:
-    app: ops-portal-redis
+    app: ops-butler-redis
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ops-portal-redis
+      app: ops-butler-redis
   template:
     metadata:
       labels:
-        app: ops-portal-redis
+        app: ops-butler-redis
     spec:
       tolerations:
       - key: "node.kubernetes.io/not-ready"
@@ -36,13 +36,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ops-portal-redis
-  namespace: ops-portal
+  name: ops-butler-redis
+  namespace: ops-butler
   labels:
-    app: ops-portal-redis
+    app: ops-butler-redis
 spec:
   selector:
-    app: ops-portal-redis
+    app: ops-butler-redis
   ports:
   - port: 6379
     targetPort: redis
