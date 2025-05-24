@@ -63,6 +63,8 @@ export default function CreateTask() {
         origin: 'web',
         chat_thread: '',
         created_by: 1, // Default user ID
+        // Note: agent_id is currently ignored by the server to avoid foreign key constraint violations
+        // when the selected agent doesn't exist. The server sets agent_id to null for all tasks.
         agent_id: parseInt(formData.agentId),
         chat_type: formData.chatType,
         chat_id: formData.chatId,

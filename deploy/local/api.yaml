@@ -21,7 +21,7 @@ spec:
         effect: "NoSchedule"
       containers:
       - name: api
-        image: crcoerph/ops-butler:api-v0.0.1-01
+        image: crcoerph/ops-butler:api-v0.0.1-08
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

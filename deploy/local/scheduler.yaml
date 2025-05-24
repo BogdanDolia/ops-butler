@@ -21,7 +21,7 @@ spec:
         effect: "NoSchedule"
       containers:
       - name: scheduler
-        image: crcoerph/ops-butler:scheduler-v0.0.1-01
+        image: crcoerph/ops-butler:scheduler-v0.0.1-08
         imagePullPolicy: Always
         env:
         - name: DB_HOST

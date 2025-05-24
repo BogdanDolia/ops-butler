@@ -28,6 +28,7 @@ type Server struct {
 	db         *database.GormRepository
 	templates  database.TemplateRepository
 	tasks      database.TaskRepository
+	agents     database.AgentRepository
 	chatops    *chatops.Service
 	// Add other repositories as needed
 }
@@ -78,6 +79,7 @@ func (s *Server) initRepositories(db *database.GormRepository) {
 	// Initialize repositories
 	s.templates = database.NewTemplateRepository(db.DB())
 	s.tasks = database.NewTaskRepository(db.DB())
+	s.agents = database.NewAgentRepository(db.DB())
 	// Initialize other repositories as needed
 }
 
@@ -318,6 +320,10 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 		task.Origin = models.TaskOriginWeb
 	}
 
+	// Set agent_id to nil to avoid foreign key constraint violation
+	// This is a temporary fix until we implement proper agent validation
+	task.AgentID = nil
+
 	// Create the task
 	err := s.tasks.Create(c.Request.Context(), &task)
 	if err != nil {
@@ -490,33 +496,41 @@ func (s *Server) handleGetTaskLogs(c *gin.Context) {
 }
 
 func (s *Server) handleListAgents(c *gin.Context) {
-	// Since we don't have a proper agent repository implementation yet,
-	// we'll return a mock list of agents
-	agents := []gin.H{
-		{
-			"id":             1,
-			"name":           "agent-1",
-			"labels":         gin.H{"environment": "production", "region": "us-west-1"},
-			"last_heartbeat": time.Now(),
-			"status":         "active",
-			"version":        "1.0.0",
-		},
-		{
-			"id":             2,
-			"name":           "agent-2",
-			"labels":         gin.H{"environment": "staging", "region": "us-east-1"},
-			"last_heartbeat": time.Now(),
-			"status":         "active",
-			"version":        "1.0.0",
-		},
+	// Get agents from the repository
+	agents, err := s.agents.List(c.Request.Context(), 0, 10)
+	if err != nil {
+		s.logger.Error("Failed to list agents", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list agents"})
+		return
 	}
 
 	c.JSON(http.StatusOK, agents)
 }
 
 func (s *Server) handleGetAgent(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Get agent"})
+	// Get agent ID from URL
+	agentID := c.Param("id")
+	if agentID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Agent ID is required"})
+		return
+	}
+
+	// Convert agent ID to uint
+	var id uint
+	if _, err := fmt.Sscanf(agentID, "%d", &id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent ID"})
+		return
+	}
+
+	// Get agent from repository
+	agent, err := s.agents.GetByID(c.Request.Context(), id)
+	if err != nil {
+		s.logger.Error("Failed to get agent", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get agent"})
+		return
+	}
+
+	c.JSON(http.StatusOK, agent)
 }
 
 func (s *Server) handleWebSocketLogs(c *gin.Context) {

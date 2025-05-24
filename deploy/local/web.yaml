@@ -21,13 +21,13 @@ spec:
         effect: "NoSchedule"
       containers:
       - name: web
-        image: crcoerph/ops-butler:web-v0.0.1-01
+        image: crcoerph/ops-butler:web-v0.0.1-08
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
           name: http
         env:
-        - name: API_URL
+        - name: NEXT_PUBLIC_API_URL
           value: http://ops-butler-api:8080
         resources:
           limits:

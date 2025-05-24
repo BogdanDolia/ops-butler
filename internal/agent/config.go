@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Name              string
 	Labels            map[string]string
+	ClusterName       string
 	ServerAddress     string
 	HeartbeatInterval time.Duration
 	Namespace         string
@@ -27,8 +28,9 @@ type Config struct {
 func NewConfig() *Config {
 	return &Config{
 		Name:              getEnv("AGENT_NAME", getHostname()),
-		Labels:            getEnvAsMap("AGENT_LABELS", map[string]string{}),
-		ServerAddress:     getEnv("SERVER_ADDRESS", "localhost:8080"),
+		Labels:            getEnvAsMap("CLUSTER_LABELS", map[string]string{}),
+		ClusterName:       getEnv("CLUSTER_NAME", "default"),
+		ServerAddress:     getEnv("API_SERVER", "localhost:8080"),
 		HeartbeatInterval: getEnvAsDuration("HEARTBEAT_INTERVAL", 30*time.Second),
 		Namespace:         getEnv("KUBERNETES_NAMESPACE", "default"),
 		TLSEnabled:        getEnvAsBool("TLS_ENABLED", false),
@@ -104,6 +106,6 @@ func getEnvAsDuration(key string, defaultValue time.Duration) time.Duration {
 
 // String returns a string representation of the config
 func (c *Config) String() string {
-	return fmt.Sprintf("Agent Config: Name=%s, Labels=%v, ServerAddress=%s, Namespace=%s",
-		c.Name, c.Labels, c.ServerAddress, c.Namespace)
+	return fmt.Sprintf("Agent Config: Name=%s, ClusterName=%s, Labels=%v, ServerAddress=%s, Namespace=%s",
+		c.Name, c.ClusterName, c.Labels, c.ServerAddress, c.Namespace)
 }

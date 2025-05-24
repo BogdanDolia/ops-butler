@@ -22,7 +22,7 @@ spec:
         effect: "NoSchedule"
       containers:
       - name: agent
-        image: crcoerph/ops-butler:agent-v0.0.1-01
+        image: crcoerph/ops-butler:agent-v0.0.1-08
         imagePullPolicy: Always
         env:
         - name: API_SERVER
