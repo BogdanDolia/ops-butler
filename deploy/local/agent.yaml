@@ -1,32 +1,32 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ops-portal-agent
-  namespace: ops-portal
+  name: ops-butler-agent
+  namespace: ops-butler
   labels:
-    app: ops-portal-agent
+    app: ops-butler-agent
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ops-portal-agent
+      app: ops-butler-agent
   template:
     metadata:
       labels:
-        app: ops-portal-agent
+        app: ops-butler-agent
     spec:
-      serviceAccountName: ops-portal-agent
+      serviceAccountName: ops-butler-agent
       tolerations:
       - key: "node.kubernetes.io/not-ready"
         operator: "Exists"
         effect: "NoSchedule"
       containers:
       - name: agent
-        image: crcoerph/ops-butler:agent-latest
-        imagePullPolicy: IfNotPresent
+        image: crcoerph/ops-butler:agent-v0.0.1-01
+        imagePullPolicy: Always
         env:
         - name: API_SERVER
-          value: ops-portal-api:9090
+          value: ops-butler-api:9090
         - name: CLUSTER_NAME
           value: local-dev
         - name: CLUSTER_LABELS
@@ -42,13 +42,13 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: ops-portal-agent
-  namespace: ops-portal
+  name: ops-butler-agent
+  namespace: ops-butler
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: ops-portal-agent
+  name: ops-butler-agent
 rules:
 - apiGroups: [""]
   resources: ["pods", "services", "configmaps", "secrets"]
@@ -63,12 +63,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: ops-portal-agent
+  name: ops-butler-agent
 subjects:
 - kind: ServiceAccount
-  name: ops-portal-agent
-  namespace: ops-portal
+  name: ops-butler-agent
+  namespace: ops-butler
 roleRef:
   kind: ClusterRole
-  name: ops-portal-agent
+  name: ops-butler-agent
   apiGroup: rbac.authorization.k8s.io

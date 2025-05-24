@@ -66,7 +66,7 @@ cd ops-butler
 
 ```bash
 helm repo add ops-butler https://BogdanDolia.github.io/ops-butler/charts
-helm install ops-portal ops-butler/ops-portal
+helm install ops-butler ops-butler/ops-butler
 ```
 
 ## License

@@ -13,8 +13,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
+	"github.com/BogdanDolia/ops-butler/internal/chatops"
 	"github.com/BogdanDolia/ops-butler/internal/config"
 	"github.com/BogdanDolia/ops-butler/internal/database"
+	"github.com/BogdanDolia/ops-butler/internal/models"
 )
 
 // Server represents the API server
@@ -25,6 +27,8 @@ type Server struct {
 	logger     *zap.Logger
 	db         *database.GormRepository
 	templates  database.TemplateRepository
+	tasks      database.TaskRepository
+	chatops    *chatops.Service
 	// Add other repositories as needed
 }
 
@@ -56,6 +60,10 @@ func NewServer(cfg *config.Config, log *zap.Logger, db *database.GormRepository)
 	// Initialize repositories
 	server.initRepositories(db)
 
+	// TODO: Initialize chatops service
+	// In a real implementation, we would initialize the chatops service here
+	// server.chatops = chatops.NewService(cfg.ChatOps, log)
+
 	// Set up middleware
 	server.setupMiddleware()
 
@@ -69,6 +77,7 @@ func NewServer(cfg *config.Config, log *zap.Logger, db *database.GormRepository)
 func (s *Server) initRepositories(db *database.GormRepository) {
 	// Initialize repositories
 	s.templates = database.NewTemplateRepository(db.DB())
+	s.tasks = database.NewTaskRepository(db.DB())
 	// Initialize other repositories as needed
 }
 
@@ -295,8 +304,29 @@ func (s *Server) handleGetTask(c *gin.Context) {
 }
 
 func (s *Server) handleCreateTask(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Create task"})
+	var task models.TaskInstance
+	if err := c.ShouldBindJSON(&task); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Set default values if not provided
+	if task.State == "" {
+		task.State = models.TaskStatePending
+	}
+	if task.Origin == "" {
+		task.Origin = models.TaskOriginWeb
+	}
+
+	// Create the task
+	err := s.tasks.Create(c.Request.Context(), &task)
+	if err != nil {
+		s.logger.Error("Failed to create task", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create task"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, task)
 }
 
 func (s *Server) handleUpdateTask(c *gin.Context) {
@@ -310,18 +340,178 @@ func (s *Server) handleDeleteTask(c *gin.Context) {
 }
 
 func (s *Server) handleExecuteTask(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Execute task"})
+	// Get task ID from URL
+	taskID := c.Param("id")
+	if taskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Task ID is required"})
+		return
+	}
+
+	// Convert task ID to uint
+	var id uint
+	if _, err := fmt.Sscanf(taskID, "%d", &id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid task ID"})
+		return
+	}
+
+	// Get task from database
+	task, err := s.tasks.GetByID(c.Request.Context(), id)
+	if err != nil {
+		s.logger.Error("Failed to get task", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get task"})
+		return
+	}
+
+	// Check if task is a "check logs" task
+	if task.TaskType == models.TaskTypeCheckLogs {
+		// Get pod name and namespace from task parameters
+		podName, ok := task.Params["podName"].(string)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Pod name is required"})
+			return
+		}
+
+		namespace, ok := task.Params["namespace"].(string)
+		if !ok {
+			namespace = "default" // Default namespace
+		}
+
+		// Update task state
+		task.State = models.TaskStateRunning
+		if err := s.tasks.Update(c.Request.Context(), task); err != nil {
+			s.logger.Error("Failed to update task state", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update task state"})
+			return
+		}
+
+		// TODO: Implement logic to get logs from the pod
+		// For now, we'll just simulate getting logs
+		logs := fmt.Sprintf("Simulated logs for pod %s in namespace %s\n", podName, namespace)
+		for i := 1; i <= 40; i++ {
+			logs += fmt.Sprintf("Log line %d: This is a simulated log line\n", i)
+		}
+
+		// Create a reminder for the task
+		reminder := &models.Reminder{
+			TaskID:   task.ID,
+			ChatAt:   time.Now(),
+			State:    models.ReminderStatePending,
+			ChatType: task.Params["chatType"].(string),
+			ChatID:   task.Params["chatId"].(string),
+		}
+
+		// TODO: Create a reminder repository and use it to create the reminder
+		// For now, we'll just simulate creating a reminder
+		s.logger.Info("Simulating creating a reminder", zap.Any("reminder", reminder))
+
+		// TODO: Use the chatops service to send a notification with a button to check logs
+		// In a real implementation, we would use the chatops service to send a notification
+		// with a button to check logs. When the button is clicked, it would display the logs.
+		// For example:
+		// s.chatops.SendReminderMessage(reminder.ChatType, reminder.ChatID,
+		//    fmt.Sprintf("Check logs for pod %s in namespace %s", podName, namespace), task.ID)
+
+		// Update task state
+		task.State = models.TaskStateCompleted
+		task.CompletedAt = &time.Time{}
+		*task.CompletedAt = time.Now()
+		if err := s.tasks.Update(c.Request.Context(), task); err != nil {
+			s.logger.Error("Failed to update task state", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update task state"})
+			return
+		}
+
+		// Return the logs
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Task executed successfully",
+			"logs":    logs,
+		})
+		return
+	}
+
+	// For other task types, just return a success message
+	c.JSON(http.StatusOK, gin.H{"message": "Task executed successfully"})
 }
 
 func (s *Server) handleGetTaskLogs(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Get task logs"})
+	// Get task ID from URL
+	taskID := c.Param("id")
+	if taskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Task ID is required"})
+		return
+	}
+
+	// Convert task ID to uint
+	var id uint
+	if _, err := fmt.Sscanf(taskID, "%d", &id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid task ID"})
+		return
+	}
+
+	// Get task from database
+	task, err := s.tasks.GetByID(c.Request.Context(), id)
+	if err != nil {
+		s.logger.Error("Failed to get task", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get task"})
+		return
+	}
+
+	// Check if task is a "check logs" task
+	if task.TaskType == models.TaskTypeCheckLogs {
+		// Get pod name and namespace from task parameters
+		podName, ok := task.Params["podName"].(string)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Pod name is required"})
+			return
+		}
+
+		namespace, ok := task.Params["namespace"].(string)
+		if !ok {
+			namespace = "default" // Default namespace
+		}
+
+		// TODO: Implement logic to get logs from the pod
+		// For now, we'll just simulate getting logs
+		logs := fmt.Sprintf("Simulated logs for pod %s in namespace %s\n", podName, namespace)
+		for i := 1; i <= 40; i++ {
+			logs += fmt.Sprintf("Log line %d: This is a simulated log line\n", i)
+		}
+
+		// Return the logs
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Task logs retrieved successfully",
+			"logs":    logs,
+		})
+		return
+	}
+
+	// For other task types, just return a success message
+	c.JSON(http.StatusOK, gin.H{"message": "Task logs retrieved successfully"})
 }
 
 func (s *Server) handleListAgents(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "List agents"})
+	// Since we don't have a proper agent repository implementation yet,
+	// we'll return a mock list of agents
+	agents := []gin.H{
+		{
+			"id":             1,
+			"name":           "agent-1",
+			"labels":         gin.H{"environment": "production", "region": "us-west-1"},
+			"last_heartbeat": time.Now(),
+			"status":         "active",
+			"version":        "1.0.0",
+		},
+		{
+			"id":             2,
+			"name":           "agent-2",
+			"labels":         gin.H{"environment": "staging", "region": "us-east-1"},
+			"last_heartbeat": time.Now(),
+			"status":         "active",
+			"version":        "1.0.0",
+		},
+	}
+
+	c.JSON(http.StatusOK, agents)
 }
 
 func (s *Server) handleGetAgent(c *gin.Context) {

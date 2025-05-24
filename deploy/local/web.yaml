@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ops-portal-web
-  namespace: ops-portal
+  name: ops-butler-web
+  namespace: ops-butler
   labels:
-    app: ops-portal-web
+    app: ops-butler-web
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ops-portal-web
+      app: ops-butler-web
   template:
     metadata:
       labels:
-        app: ops-portal-web
+        app: ops-butler-web
     spec:
       tolerations:
       - key: "node.kubernetes.io/not-ready"
@@ -21,14 +21,14 @@ spec:
         effect: "NoSchedule"
       containers:
       - name: web
-        image: crcoerph/ops-butler:web-latest
-        imagePullPolicy: IfNotPresent
+        image: crcoerph/ops-butler:web-v0.0.1-01
+        imagePullPolicy: Always
         ports:
         - containerPort: 3000
           name: http
         env:
         - name: API_URL
-          value: http://ops-portal-api:8080
+          value: http://ops-butler-api:8080
         resources:
           limits:
             cpu: 200m
@@ -40,13 +40,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ops-portal-web
-  namespace: ops-portal
+  name: ops-butler-web
+  namespace: ops-butler
   labels:
-    app: ops-portal-web
+    app: ops-butler-web
 spec:
   selector:
-    app: ops-portal-web
+    app: ops-butler-web
   ports:
   - port: 80
     targetPort: http
@@ -56,13 +56,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ops-portal-web-nodeport
-  namespace: ops-portal
+  name: ops-butler-web-nodeport
+  namespace: ops-butler
   labels:
-    app: ops-portal-web
+    app: ops-butler-web
 spec:
   selector:
-    app: ops-portal-web
+    app: ops-butler-web
   ports:
   - port: 80
     targetPort: http

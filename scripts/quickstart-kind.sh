@@ -32,14 +32,14 @@ fi
 echo "✅ All prerequisites satisfied!"
 
 # Create kind cluster
-echo "🔄 Creating kind cluster 'ops-portal'..."
+echo "🔄 Creating kind cluster 'ops-butler'..."
 
 # Check if cluster already exists
-if kind get clusters | grep -q "ops-portal"; then
-    echo "⚠️  Kind cluster 'ops-portal' already exists. Skipping creation."
+if kind get clusters | grep -q "ops-butler"; then
+    echo "⚠️  Kind cluster 'ops-butler' already exists. Skipping creation."
 else
     # Create a kind cluster with port mappings for the portal
-    cat <<EOF | kind create cluster --name ops-portal --config=-
+    cat <<EOF | kind create cluster --name ops-butler --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -65,17 +65,17 @@ nodes:
       kubeletExtraArgs:
         system-reserved: memory=2Gi,cpu=1
 EOF
-    echo "✅ Kind cluster 'ops-portal' created successfully!"
+    echo "✅ Kind cluster 'ops-butler' created successfully!"
 fi
 
 # Set kubectl context to the new cluster
-kubectl cluster-info --context kind-ops-portal
+kubectl cluster-info --context kind-ops-butler
 
 # Deploy necessary components
 echo "🔄 Deploying K8s Ops Portal components..."
 
 # Create namespace
-kubectl create namespace ops-portal --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace ops-butler --dry-run=client -o yaml | kubectl apply -f -
 
 # Build and load Docker images
 # This section is commented out because the images need to be built manually
@@ -87,17 +87,17 @@ kubectl apply -k deploy/local/
 
 echo "⚠️  Note: This script assumes you have already built the Docker images."
 echo "   If you haven't built the images yet, you can do so with:"
-echo "   docker build -t ops-portal-api:dev ./api"
-echo "   docker build -t ops-portal-web:dev ./web"
-echo "   docker build -t ops-portal-scheduler:dev ./cmd/scheduler"
-echo "   docker build -t ops-portal-agent:dev ./cmd/agent"
-echo "   kind load docker-image ops-portal-api:dev --name ops-portal"
-echo "   kind load docker-image ops-portal-web:dev --name ops-portal"
-echo "   kind load docker-image ops-portal-scheduler:dev --name ops-portal"
-echo "   kind load docker-image ops-portal-agent:dev --name ops-portal"
+echo "   docker build -t ops-butler-api:dev ./api"
+echo "   docker build -t ops-butler-web:dev ./web"
+echo "   docker build -t ops-butler-scheduler:dev ./cmd/scheduler"
+echo "   docker build -t ops-butler-agent:dev ./cmd/agent"
+echo "   kind load docker-image ops-butler-api:dev --name ops-butler"
+echo "   kind load docker-image ops-butler-web:dev --name ops-butler"
+echo "   kind load docker-image ops-butler-scheduler:dev --name ops-butler"
+echo "   kind load docker-image ops-butler-agent:dev --name ops-butler"
 
 echo "🔄 Waiting for deployments to be ready..."
-kubectl -n ops-portal wait --for=condition=available --timeout=300s deployment --all
+kubectl -n ops-butler wait --for=condition=available --timeout=300s deployment --all
 
 echo "✅ K8s Ops Portal development environment is ready!"
 echo ""
@@ -105,8 +105,8 @@ echo "📊 Access the portal at: http://localhost:8080"
 echo "🔑 Default credentials: admin / admin123"
 echo ""
 echo "📝 Useful commands:"
-echo "   - View all resources: kubectl -n ops-portal get all"
-echo "   - View logs: kubectl -n ops-portal logs -l app=ops-portal-api"
-echo "   - Delete cluster: kind delete cluster --name ops-portal"
+echo "   - View all resources: kubectl -n ops-butler get all"
+echo "   - View logs: kubectl -n ops-butler logs -l app=ops-butler-api"
+echo "   - Delete cluster: kind delete cluster --name ops-butler"
 echo ""
 echo "Happy developing! 🎉"

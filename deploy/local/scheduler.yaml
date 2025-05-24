@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ops-portal-scheduler
-  namespace: ops-portal
+  name: ops-butler-scheduler
+  namespace: ops-butler
   labels:
-    app: ops-portal-scheduler
+    app: ops-butler-scheduler
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ops-portal-scheduler
+      app: ops-butler-scheduler
   template:
     metadata:
       labels:
-        app: ops-portal-scheduler
+        app: ops-butler-scheduler
     spec:
       tolerations:
       - key: "node.kubernetes.io/not-ready"
@@ -21,11 +21,11 @@ spec:
         effect: "NoSchedule"
       containers:
       - name: scheduler
-        image: crcoerph/ops-butler:scheduler-latest
-        imagePullPolicy: IfNotPresent
+        image: crcoerph/ops-butler:scheduler-v0.0.1-01
+        imagePullPolicy: Always
         env:
         - name: DB_HOST
-          value: ops-portal-db
+          value: ops-butler-db
         - name: DB_PORT
           value: "5432"
         - name: DB_USER
@@ -35,9 +35,9 @@ spec:
         - name: DB_NAME
           value: ops_portal
         - name: API_SERVER
-          value: ops-portal-api:9090
+          value: ops-butler-api:9090
         - name: REDIS_URL
-          value: ops-portal-redis:6379
+          value: ops-butler-redis:6379
         resources:
           limits:
             cpu: 200m
