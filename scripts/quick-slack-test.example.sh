@@ -7,8 +7,8 @@ echo "🚀 Quick Slack Integration Test"
 echo "================================="
 
 # Use your actual tokens from the ConfigMap
-export SLACK_TOKEN="xoxb-8948822092324-9217588031638-SA83KBY2H0Zgie0ZKQu43cEv"
-export SLACK_SIGNING_SECRET="aea37904257a9f07f1df03ee860f9594"
+export SLACK_TOKEN=""
+export SLACK_SIGNING_SECRET=""
 export SLACK_DEFAULT_CHANNEL="#ops-alerts"
 export SLACK_ENABLED=true
 export SLACK_DEMO_MODE=false
