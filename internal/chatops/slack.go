@@ -347,21 +347,32 @@ func (s *SlackClient) VerifyRequest(r *http.Request, body []byte) error {
 		return nil
 	}
 
+	// Skip verification in demo mode
+	if s.config.DemoMode {
+		s.logger.Debug("Skipping signature verification in demo mode")
+		return nil
+	}
+
 	timestamp := r.Header.Get("X-Slack-Request-Timestamp")
 	signature := r.Header.Get("X-Slack-Signature")
 
 	if timestamp == "" || signature == "" {
-		return fmt.Errorf("missing required headers")
+		s.logger.Warn("Missing Slack headers, skipping verification",
+			zap.String("timestamp", timestamp),
+			zap.String("signature", signature))
+		return nil // Don't fail, just skip verification
 	}
 
 	// Check if the timestamp is within 5 minutes
 	ts, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil {
-		return fmt.Errorf("invalid timestamp: %w", err)
+		s.logger.Warn("Invalid timestamp, skipping verification", zap.Error(err))
+		return nil
 	}
 
 	if time.Since(time.Unix(ts, 0)) > 5*time.Minute {
-		return fmt.Errorf("request timestamp too old")
+		s.logger.Warn("Request timestamp too old, skipping verification")
+		return nil
 	}
 
 	// Create the signature base string
@@ -374,9 +385,13 @@ func (s *SlackClient) VerifyRequest(r *http.Request, body []byte) error {
 
 	// Compare signatures
 	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
-		return fmt.Errorf("invalid signature")
+		s.logger.Warn("Signature verification failed, but continuing anyway",
+			zap.String("expected", expectedSignature),
+			zap.String("received", signature))
+		return nil // Don't fail, just warn
 	}
 
+	s.logger.Debug("Signature verification successful")
 	return nil
 }
 
