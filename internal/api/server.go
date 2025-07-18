@@ -63,7 +63,8 @@ func NewServer(cfg *config.Config, log *zap.Logger, db *database.GormRepository)
 
 	// Initialize chatops service
 	if cfg.ChatOps.Slack.Enabled || cfg.ChatOps.GoogleChat.Enabled {
-		chatopsService, err := chatops.NewService(&cfg.ChatOps, log, server)
+		chatopsConfig := chatops.FromConfigChatOps(cfg.ChatOps)
+		chatopsService, err := chatops.NewService(chatopsConfig, log, server)
 		if err != nil {
 			log.Error("Failed to create ChatOps service", zap.Error(err))
 		} else {
@@ -156,6 +157,10 @@ func (s *Server) setupRoutes() {
 			chatops.POST("/slack/webhook", s.handleSlackWebhook)
 			chatops.POST("/slack/slash", s.handleSlackSlashCommand)
 			chatops.POST("/googlechat/webhook", s.handleGoogleChatWebhook)
+
+			// Test endpoints
+			chatops.POST("/test/slack", s.handleTestSlackMessage)
+			chatops.POST("/test/googlechat", s.handleTestGoogleChatMessage)
 		}
 	}
 
@@ -279,10 +284,20 @@ func contains(slice []string, item string) bool {
 
 // handleHealth handles the health check endpoint
 func (s *Server) handleHealth(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
+	health := gin.H{
 		"status": "ok",
 		"time":   time.Now().Format(time.RFC3339),
-	})
+	}
+
+	// Check ChatOps status
+	if s.chatops != nil {
+		health["chatops"] = gin.H{
+			"slack_enabled":      s.config.ChatOps.Slack.Enabled,
+			"googlechat_enabled": s.config.ChatOps.GoogleChat.Enabled,
+		}
+	}
+
+	c.JSON(http.StatusOK, health)
 }
 
 // Placeholder handlers for routes

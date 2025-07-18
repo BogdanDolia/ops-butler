@@ -233,3 +233,107 @@ func (s *Server) handleOpsListCommand(c *gin.Context, channelID, userID, userNam
 		"text":          response.String(),
 	})
 }
+
+// handleTestSlackMessage handles test Slack message requests
+func (s *Server) handleTestSlackMessage(c *gin.Context) {
+	var request struct {
+		Channel string `json:"channel"`
+		Message string `json:"message"`
+		TaskID  *uint  `json:"task_id,omitempty"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if request.Channel == "" {
+		request.Channel = "#general"
+	}
+
+	if request.Message == "" {
+		request.Message = "🤖 Test message from Ops Butler!"
+	}
+
+	if s.chatops == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ChatOps service not available"})
+		return
+	}
+
+	// Send different types of messages based on request
+	var messageID string
+	var err error
+
+	if request.TaskID != nil {
+		// Send reminder message with buttons
+		messageID, err = s.chatops.SendReminderMessage("slack", request.Channel, request.Message, *request.TaskID)
+	} else {
+		// Send simple message
+		messageID, err = s.chatops.SendMessage("slack", request.Channel, request.Message)
+	}
+
+	if err != nil {
+		s.logger.Error("Failed to send test message", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message_id": messageID,
+		"channel":    request.Channel,
+		"message":    request.Message,
+		"status":     "sent",
+	})
+}
+
+// handleTestGoogleChatMessage handles test Google Chat message requests
+func (s *Server) handleTestGoogleChatMessage(c *gin.Context) {
+	var request struct {
+		Space   string `json:"space"`
+		Message string `json:"message"`
+		TaskID  *uint  `json:"task_id,omitempty"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if request.Space == "" {
+		request.Space = "spaces/your-default-space"
+	}
+
+	if request.Message == "" {
+		request.Message = "🤖 Test message from Ops Butler!"
+	}
+
+	if s.chatops == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ChatOps service not available"})
+		return
+	}
+
+	// Send different types of messages based on request
+	var messageID string
+	var err error
+
+	if request.TaskID != nil {
+		// Send reminder message with buttons
+		messageID, err = s.chatops.SendReminderMessage("google_chat", request.Space, request.Message, *request.TaskID)
+	} else {
+		// Send simple message
+		messageID, err = s.chatops.SendMessage("google_chat", request.Space, request.Message)
+	}
+
+	if err != nil {
+		s.logger.Error("Failed to send test message", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message_id": messageID,
+		"space":      request.Space,
+		"message":    request.Message,
+		"status":     "sent",
+	})
+}
