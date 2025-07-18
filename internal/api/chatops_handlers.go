@@ -256,7 +256,23 @@ func (s *Server) handleTestSlackMessage(c *gin.Context) {
 	}
 
 	if s.chatops == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ChatOps service not available"})
+		// Provide detailed error about why ChatOps is not available
+		errorDetails := gin.H{
+			"error": "ChatOps service not available",
+			"details": gin.H{
+				"slack_enabled":          s.config.ChatOps.Slack.Enabled,
+				"slack_token_configured": s.config.ChatOps.Slack.Token != "",
+				"googlechat_enabled":     s.config.ChatOps.GoogleChat.Enabled,
+			},
+		}
+
+		if !s.config.ChatOps.Slack.Enabled {
+			errorDetails["solution"] = "Set SLACK_ENABLED=true environment variable"
+		} else if s.config.ChatOps.Slack.Token == "" {
+			errorDetails["solution"] = "Set SLACK_TOKEN environment variable with your Slack bot token"
+		}
+
+		c.JSON(http.StatusServiceUnavailable, errorDetails)
 		return
 	}
 
@@ -274,7 +290,11 @@ func (s *Server) handleTestSlackMessage(c *gin.Context) {
 
 	if err != nil {
 		s.logger.Error("Failed to send test message", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   err.Error(),
+			"channel": request.Channel,
+			"message": request.Message,
+		})
 		return
 	}
 

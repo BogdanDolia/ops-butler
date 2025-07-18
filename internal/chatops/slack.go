@@ -77,6 +77,16 @@ func NewSlackClient(config SlackConfig, logger *zap.Logger) (*SlackClient, error
 		return nil, fmt.Errorf("slack is not enabled")
 	}
 
+	// In demo mode, we don't need a real token
+	if config.DemoMode {
+		logger.Info("Slack client initialized in demo mode")
+		return &SlackClient{
+			config: config,
+			logger: logger,
+			client: nil, // No real client in demo mode
+		}, nil
+	}
+
 	if config.Token == "" {
 		return nil, fmt.Errorf("slack token is required")
 	}
@@ -103,6 +113,15 @@ func (s *SlackClient) SendMessage(channel, text string) (string, error) {
 		channel = "#" + channel
 	}
 
+	// Demo mode - just log the message
+	if s.config.DemoMode {
+		s.logger.Info("📤 [DEMO MODE] Slack message",
+			zap.String("channel", channel),
+			zap.String("text", text))
+		return fmt.Sprintf("demo_%d", time.Now().Unix()), nil
+	}
+
+	// Real Slack API call
 	channelID, timestamp, err := s.client.PostMessage(channel, slack.MsgOptionText(text, false))
 	if err != nil {
 		return "", fmt.Errorf("failed to send message: %w", err)
@@ -129,6 +148,16 @@ func (s *SlackClient) SendReminderMessage(channel, text string, taskID uint) (st
 	// Ensure channel starts with #
 	if !strings.HasPrefix(channel, "#") && !strings.HasPrefix(channel, "C") {
 		channel = "#" + channel
+	}
+
+	// Demo mode - just log the message
+	if s.config.DemoMode {
+		s.logger.Info("📤 [DEMO MODE] Slack reminder message with buttons",
+			zap.String("channel", channel),
+			zap.String("text", text),
+			zap.Uint("task_id", taskID),
+			zap.Strings("buttons", []string{"🚀 Run Now", "⏰ Snooze 2h", "❌ Cancel"}))
+		return fmt.Sprintf("demo_reminder_%d", time.Now().Unix()), nil
 	}
 
 	// Create Block Kit message with interactive buttons

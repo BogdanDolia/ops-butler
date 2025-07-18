@@ -23,6 +23,7 @@ type SlackConfig struct {
 	VerifyToken    string
 	BotUserID      string
 	DefaultChannel string
+	DemoMode       bool // For testing without real Slack token
 }
 
 // GoogleChatConfig holds the Google Chat configuration
@@ -44,6 +45,7 @@ func NewConfig() *Config {
 			VerifyToken:    getEnv("SLACK_VERIFY_TOKEN", ""),
 			BotUserID:      getEnv("SLACK_BOT_USER_ID", ""),
 			DefaultChannel: getEnv("SLACK_DEFAULT_CHANNEL", "general"),
+			DemoMode:       getEnvAsBool("SLACK_DEMO_MODE", false),
 		},
 		GoogleChat: GoogleChatConfig{
 			Enabled:        getEnvAsBool("GOOGLE_CHAT_ENABLED", false),
@@ -65,6 +67,7 @@ func FromConfigChatOps(cfg config.ChatOpsConfig) *Config {
 			VerifyToken:    cfg.Slack.VerifyToken,
 			BotUserID:      cfg.Slack.BotUserID,
 			DefaultChannel: cfg.Slack.DefaultChannel,
+			DemoMode:       cfg.Slack.DemoMode,
 		},
 		GoogleChat: GoogleChatConfig{
 			Enabled:        cfg.GoogleChat.Enabled,

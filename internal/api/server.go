@@ -62,14 +62,34 @@ func NewServer(cfg *config.Config, log *zap.Logger, db *database.GormRepository)
 	server.initRepositories(db)
 
 	// Initialize chatops service
+	log.Info("Initializing ChatOps service",
+		zap.Bool("slack_enabled", cfg.ChatOps.Slack.Enabled),
+		zap.Bool("googlechat_enabled", cfg.ChatOps.GoogleChat.Enabled),
+		zap.String("slack_token_set", func() string {
+			if cfg.ChatOps.Slack.Token != "" {
+				return "yes"
+			}
+			return "no"
+		}()),
+		zap.Bool("slack_demo_mode", cfg.ChatOps.Slack.DemoMode))
+
 	if cfg.ChatOps.Slack.Enabled || cfg.ChatOps.GoogleChat.Enabled {
+		// Auto-enable demo mode if Slack is enabled but no token provided
 		chatopsConfig := chatops.FromConfigChatOps(cfg.ChatOps)
+		if cfg.ChatOps.Slack.Enabled && cfg.ChatOps.Slack.Token == "" && !cfg.ChatOps.Slack.DemoMode {
+			log.Info("Auto-enabling Slack demo mode (no token provided)")
+			chatopsConfig.Slack.DemoMode = true
+		}
+
 		chatopsService, err := chatops.NewService(chatopsConfig, log, server)
 		if err != nil {
 			log.Error("Failed to create ChatOps service", zap.Error(err))
 		} else {
 			server.chatops = chatopsService
+			log.Info("ChatOps service initialized successfully")
 		}
+	} else {
+		log.Warn("ChatOps service not enabled. Set SLACK_ENABLED=true or GOOGLE_CHAT_ENABLED=true to enable")
 	}
 
 	// Set up middleware
