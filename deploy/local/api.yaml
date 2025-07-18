@@ -1,32 +1,37 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ops-portal-api
-  namespace: ops-portal
+  name: ops-butler-api
+  namespace: ops-butler
   labels:
-    app: ops-portal-api
+    app: ops-butler-api
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ops-portal-api
+      app: ops-butler-api
   template:
     metadata:
       labels:
-        app: ops-portal-api
+        app: ops-butler-api
     spec:
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoSchedule"
       containers:
       - name: api
-        image: ops-portal-api:dev
-        imagePullPolicy: IfNotPresent
+        image: crcoerph/ops-butler:api-v0.0.1-14
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
           name: http
         - containerPort: 9090
           name: grpc
         env:
+        # Database Configuration
         - name: DB_HOST
-          value: ops-portal-db
+          value: ops-butler-db
         - name: DB_PORT
           value: "5432"
         - name: DB_USER
@@ -35,6 +40,52 @@ spec:
           value: postgres
         - name: DB_NAME
           value: ops_portal
+        # ChatOps Configuration from ConfigMap
+        - name: SLACK_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: chatops-config
+              key: SLACK_ENABLED
+        - name: SLACK_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: chatops-config
+              key: SLACK_TOKEN
+        - name: SLACK_SIGNING_SECRET
+          valueFrom:
+            configMapKeyRef:
+              name: chatops-config
+              key: SLACK_SIGNING_SECRET
+        - name: SLACK_DEFAULT_CHANNEL
+          valueFrom:
+            configMapKeyRef:
+              name: chatops-config
+              key: SLACK_DEFAULT_CHANNEL
+        - name: SLACK_DEMO_MODE
+          valueFrom:
+            configMapKeyRef:
+              name: chatops-config
+              key: SLACK_DEMO_MODE
+        - name: SLACK_APP_ID
+          valueFrom:
+            configMapKeyRef:
+              name: chatops-config
+              key: SLACK_APP_ID
+        - name: SLACK_BOT_USER_ID
+          valueFrom:
+            configMapKeyRef:
+              name: chatops-config
+              key: SLACK_BOT_USER_ID
+        - name: GOOGLE_CHAT_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: chatops-config
+              key: GOOGLE_CHAT_ENABLED
+        # Additional settings
+        - name: LOG_LEVEL
+          value: "debug"
+        - name: SERVER_PORT
+          value: "8080"
         resources:
           limits:
             cpu: 500m
@@ -46,13 +97,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ops-portal-api
-  namespace: ops-portal
+  name: ops-butler-api
+  namespace: ops-butler
   labels:
-    app: ops-portal-api
+    app: ops-butler-api
 spec:
   selector:
-    app: ops-portal-api
+    app: ops-butler-api
   ports:
   - port: 8080
     targetPort: http

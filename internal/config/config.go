@@ -70,11 +70,28 @@ type TelemetryConfig struct {
 
 // ChatOpsConfig holds the ChatOps configuration
 type ChatOpsConfig struct {
-	SlackEnabled       bool
-	SlackToken         string
-	SlackSigningSecret string
-	GoogleChatEnabled  bool
-	GoogleChatToken    string
+	Slack      SlackConfig
+	GoogleChat GoogleChatConfig
+}
+
+// SlackConfig holds the Slack configuration
+type SlackConfig struct {
+	Enabled        bool
+	Token          string
+	SigningSecret  string
+	AppID          string
+	VerifyToken    string
+	BotUserID      string
+	DefaultChannel string
+	DemoMode       bool // For testing without real Slack token
+}
+
+// GoogleChatConfig holds the Google Chat configuration
+type GoogleChatConfig struct {
+	Enabled        bool
+	ServiceAccount string
+	ProjectID      string
+	DefaultSpace   string
 }
 
 // NewConfig creates a new configuration from environment variables
@@ -121,11 +138,22 @@ func NewConfig() *Config {
 			ServiceName:     getEnv("TELEMETRY_SERVICE_NAME", "ops-butler"),
 		},
 		ChatOps: ChatOpsConfig{
-			SlackEnabled:       getEnvAsBool("CHATOPS_SLACK_ENABLED", false),
-			SlackToken:         getEnv("CHATOPS_SLACK_TOKEN", ""),
-			SlackSigningSecret: getEnv("CHATOPS_SLACK_SIGNING_SECRET", ""),
-			GoogleChatEnabled:  getEnvAsBool("CHATOPS_GOOGLE_CHAT_ENABLED", false),
-			GoogleChatToken:    getEnv("CHATOPS_GOOGLE_CHAT_TOKEN", ""),
+			Slack: SlackConfig{
+				Enabled:        getEnvAsBool("SLACK_ENABLED", false),
+				Token:          getEnv("SLACK_TOKEN", ""),
+				SigningSecret:  getEnv("SLACK_SIGNING_SECRET", ""),
+				AppID:          getEnv("SLACK_APP_ID", ""),
+				VerifyToken:    getEnv("SLACK_VERIFY_TOKEN", ""),
+				BotUserID:      getEnv("SLACK_BOT_USER_ID", ""),
+				DefaultChannel: getEnv("SLACK_DEFAULT_CHANNEL", "general"),
+				DemoMode:       getEnvAsBool("SLACK_DEMO_MODE", false),
+			},
+			GoogleChat: GoogleChatConfig{
+				Enabled:        getEnvAsBool("GOOGLE_CHAT_ENABLED", false),
+				ServiceAccount: getEnv("GOOGLE_CHAT_SERVICE_ACCOUNT", ""),
+				ProjectID:      getEnv("GOOGLE_CHAT_PROJECT_ID", ""),
+				DefaultSpace:   getEnv("GOOGLE_CHAT_DEFAULT_SPACE", ""),
+			},
 		},
 	}
 }

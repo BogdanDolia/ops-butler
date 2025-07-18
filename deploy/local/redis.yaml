@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-butler-redis
+  namespace: ops-butler
+  labels:
+    app: ops-butler-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ops-butler-redis
+  template:
+    metadata:
+      labels:
+        app: ops-butler-redis
+    spec:
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoSchedule"
+      containers:
+      - name: redis
+        image: redis:6-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops-butler-redis
+  namespace: ops-butler
+  labels:
+    app: ops-butler-redis
+spec:
+  selector:
+    app: ops-butler-redis
+  ports:
+  - port: 6379
+    targetPort: redis
+    name: redis
+  type: ClusterIP

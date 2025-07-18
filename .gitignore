@@ -26,3 +26,7 @@ go.work.sum
 
 .idea
 node_modules
+.DS_Store
+
+quick-slack-test.sh
+chatops.yaml

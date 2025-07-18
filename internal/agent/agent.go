@@ -1,8 +1,15 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -10,16 +17,13 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
-	// This import would be generated from the proto file
-	// pb "github.com/BogdanDolia/ops-butler/api/proto/agent"
 )
 
 // Agent represents a cluster agent
 type Agent struct {
-	config *Config
-	logger *zap.Logger
-	conn   *grpc.ClientConn
-	// client     pb.AgentServiceClient
+	config     *Config
+	logger     *zap.Logger
+	conn       *grpc.ClientConn
 	agentID    string
 	tasks      map[string]*Task
 	tasksMutex sync.RWMutex
@@ -123,7 +127,6 @@ func (a *Agent) connect() error {
 	}
 
 	a.conn = conn
-	// a.client = pb.NewAgentServiceClient(conn)
 
 	return nil
 }
@@ -132,7 +135,7 @@ func (a *Agent) connect() error {
 func (a *Agent) register() error {
 	a.logger.Info("Registering with server")
 
-	// TODO: Implement registration with the server
+	// When the proto code is generated, this would be uncommented and used
 	// req := &pb.RegisterRequest{
 	//     Name:    a.config.Name,
 	//     Labels:  a.config.Labels,
@@ -151,9 +154,56 @@ func (a *Agent) register() error {
 	// a.agentID = resp.AgentId
 	// a.logger.Info("Registered with server", zap.String("agent_id", a.agentID))
 
-	// For now, just use the name as the ID
-	a.agentID = a.config.Name
-	a.logger.Info("Registered with server", zap.String("agent_id", a.agentID))
+	// For now, use the REST API to register
+	url := fmt.Sprintf("http://%s/api/v1/agents/register", a.config.ServerAddress)
+
+	// Prepare request body
+	reqBody := map[string]interface{}{
+		"name":         a.config.Name,
+		"cluster_name": a.config.ClusterName,
+		"labels":       a.config.Labels,
+		"version":      "1.0.0", // Hardcoded for now
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Send request
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return fmt.Errorf("failed to register with server: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Check response status
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("registration failed: %s", string(body))
+	}
+
+	// Parse response
+	var response struct {
+		AgentID uint   `json:"agent_id"`
+		Message string `json:"message"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	// Set agent ID
+	a.agentID = fmt.Sprintf("%d", response.AgentID)
+	a.logger.Info("Registered with server",
+		zap.String("agent_id", a.agentID),
+		zap.String("cluster_name", a.config.ClusterName),
+		zap.Any("labels", a.config.Labels))
 
 	return nil
 }
@@ -179,9 +229,12 @@ func (a *Agent) heartbeatLoop() {
 
 // sendHeartbeat sends a heartbeat to the server
 func (a *Agent) sendHeartbeat() error {
-	a.logger.Debug("Sending heartbeat")
+	a.logger.Debug("Sending heartbeat",
+		zap.String("agent_id", a.agentID),
+		zap.String("cluster_name", a.config.ClusterName),
+		zap.Any("labels", a.config.Labels))
 
-	// TODO: Implement heartbeat
+	// When the proto code is generated, this would be uncommented and used
 	// req := &pb.HeartbeatRequest{
 	//     AgentId: a.agentID,
 	//     Labels:  a.config.Labels,
@@ -196,6 +249,41 @@ func (a *Agent) sendHeartbeat() error {
 	// if !resp.Success {
 	//     return fmt.Errorf("heartbeat failed: %s", resp.Error)
 	// }
+
+	// For now, use the REST API to send heartbeat
+	url := fmt.Sprintf("http://%s/api/v1/agents/heartbeat", a.config.ServerAddress)
+
+	// Prepare request body
+	reqBody := map[string]interface{}{
+		"agent_id": a.agentID,
+		"labels":   a.config.Labels,
+		"status":   "healthy",
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Send request
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return fmt.Errorf("failed to send heartbeat to server: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Check response status
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("heartbeat failed: %s", string(body))
+	}
+
+	a.logger.Info("Heartbeat sent successfully")
 
 	return nil
 }
@@ -229,25 +317,139 @@ func (a *Agent) ExecuteTask(taskID, script string, params map[string]string, tim
 	go func() {
 		defer cancel()
 
-		// TODO: Implement task execution
-		// This would involve:
-		// 1. Creating a temporary script file
-		// 2. Setting up environment variables from params
-		// 3. Executing the script
-		// 4. Streaming the output back to the server
-		// 5. Updating the task status
+		a.logger.Info("Executing task script",
+			zap.String("task_id", taskID),
+			zap.String("script", script),
+			zap.Any("params", params))
 
-		// For now, just simulate a task
-		time.Sleep(5 * time.Second)
+		// Create a temporary directory for the task
+		tempDir := fmt.Sprintf("/tmp/ops-butler-task-%s", taskID)
+		if err := os.MkdirAll(tempDir, 0755); err != nil {
+			a.logger.Error("Failed to create temp directory",
+				zap.String("task_id", taskID),
+				zap.Error(err))
+
+			a.tasksMutex.Lock()
+			task.Status = "failed"
+			task.EndTime = time.Now()
+			task.ExitCode = 1
+			task.Error = fmt.Sprintf("Failed to create temp directory: %v", err)
+			a.tasksMutex.Unlock()
+			return
+		}
+
+		// Create the script file
+		scriptPath := filepath.Join(tempDir, "script.sh")
+		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+			a.logger.Error("Failed to write script file",
+				zap.String("task_id", taskID),
+				zap.Error(err))
+
+			a.tasksMutex.Lock()
+			task.Status = "failed"
+			task.EndTime = time.Now()
+			task.ExitCode = 1
+			task.Error = fmt.Sprintf("Failed to write script file: %v", err)
+			a.tasksMutex.Unlock()
+			return
+		}
+
+		// Prepare the command
+		cmd := exec.CommandContext(ctx, "/bin/sh", scriptPath)
+
+		// Set up environment variables from params
+		cmd.Env = os.Environ()
+		for k, v := range params {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+		}
+
+		// Capture stdout and stderr
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			a.logger.Error("Failed to create stdout pipe",
+				zap.String("task_id", taskID),
+				zap.Error(err))
+
+			a.tasksMutex.Lock()
+			task.Status = "failed"
+			task.EndTime = time.Now()
+			task.ExitCode = 1
+			task.Error = fmt.Sprintf("Failed to create stdout pipe: %v", err)
+			a.tasksMutex.Unlock()
+			return
+		}
+
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			a.logger.Error("Failed to create stderr pipe",
+				zap.String("task_id", taskID),
+				zap.Error(err))
+
+			a.tasksMutex.Lock()
+			task.Status = "failed"
+			task.EndTime = time.Now()
+			task.ExitCode = 1
+			task.Error = fmt.Sprintf("Failed to create stderr pipe: %v", err)
+			a.tasksMutex.Unlock()
+			return
+		}
+
+		// Start the command
+		if err := cmd.Start(); err != nil {
+			a.logger.Error("Failed to start command",
+				zap.String("task_id", taskID),
+				zap.Error(err))
+
+			a.tasksMutex.Lock()
+			task.Status = "failed"
+			task.EndTime = time.Now()
+			task.ExitCode = 1
+			task.Error = fmt.Sprintf("Failed to start command: %v", err)
+			a.tasksMutex.Unlock()
+			return
+		}
+
+		// TODO: Stream output back to the server
+		// This would involve reading from stdout and stderr and sending the output
+		// to the server using the ExecuteTask streaming RPC.
+
+		// For now, just read the output and log it
+		stdoutBytes, _ := io.ReadAll(stdout)
+		stderrBytes, _ := io.ReadAll(stderr)
+
+		a.logger.Debug("Task output",
+			zap.String("task_id", taskID),
+			zap.String("stdout", string(stdoutBytes)),
+			zap.String("stderr", string(stderrBytes)))
+
+		// Wait for the command to finish
+		err = cmd.Wait()
+		exitCode := 0
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else {
+				exitCode = 1
+			}
+		}
 
 		// Update the task status
 		a.tasksMutex.Lock()
 		task.Status = "completed"
 		task.EndTime = time.Now()
-		task.ExitCode = 0
+		task.ExitCode = exitCode
+		if exitCode != 0 {
+			task.Status = "failed"
+			task.Error = fmt.Sprintf("Command exited with code %d", exitCode)
+		}
 		a.tasksMutex.Unlock()
 
-		a.logger.Info("Task completed", zap.String("task_id", taskID))
+		a.logger.Info("Task completed",
+			zap.String("task_id", taskID),
+			zap.Int("exit_code", exitCode))
+
+		// Clean up
+		os.RemoveAll(tempDir)
 	}()
 
 	return nil

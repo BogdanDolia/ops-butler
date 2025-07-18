@@ -44,8 +44,8 @@ func NewScheduler(config *Config, logger *zap.Logger, db *gorm.DB) (*Scheduler, 
 	}
 
 	// Create repositories
-	taskRepo := database.TaskRepository(db)
-	reminderRepo := database.ReminderRepository(db)
+	taskRepo := database.NewTaskRepository(db)
+	reminderRepo := database.NewReminderRepository(db)
 
 	return &Scheduler{
 		config:    config,
@@ -86,6 +86,16 @@ func (s *Scheduler) Stop() error {
 	// Close Redis connection
 	if err := s.redis.Close(); err != nil {
 		s.logger.Error("Failed to close Redis connection", zap.Error(err))
+	}
+
+	// Close task repository
+	if err := s.tasks.Close(); err != nil {
+		s.logger.Error("Failed to close task repository", zap.Error(err))
+	}
+
+	// Close reminder repository
+	if err := s.reminders.Close(); err != nil {
+		s.logger.Error("Failed to close reminder repository", zap.Error(err))
 	}
 
 	s.logger.Info("Scheduler stopped")
@@ -139,22 +149,83 @@ func (s *Scheduler) checkDueTasks() error {
 func (s *Scheduler) createReminder(ctx context.Context, task *models.TaskInstance) error {
 	s.logger.Info("Creating reminder for task", zap.Uint("task_id", task.ID))
 
-	// Create a reminder
+	// Create reminder record
 	reminder := &models.Reminder{
-		TaskID: task.ID,
-		ChatAt: time.Now(),
-		State:  models.ReminderStatePending,
+		TaskID:   task.ID,
+		ChatAt:   *task.DueAt,
+		State:    models.ReminderStatePending,
+		ChatType: "slack",    // Default to Slack, should be configurable
+		ChatID:   "#general", // Default channel, should be configurable
 	}
 
-	// Save the reminder
 	if err := s.reminders.Create(ctx, reminder); err != nil {
 		return fmt.Errorf("failed to create reminder: %w", err)
 	}
 
-	// Update the task state
-	task.State = models.TaskStateScheduled
-	if err := s.tasks.Update(ctx, task); err != nil {
-		return fmt.Errorf("failed to update task state: %w", err)
+	// Schedule the reminder
+	return s.scheduleReminder(ctx, reminder)
+}
+
+// scheduleReminder schedules a reminder to be sent
+func (s *Scheduler) scheduleReminder(ctx context.Context, reminder *models.Reminder) error {
+	// Calculate delay until reminder should be sent
+	delay := time.Until(reminder.ChatAt)
+	if delay <= 0 {
+		// Send immediately if past due
+		return s.sendReminder(ctx, reminder)
+	}
+
+	// Schedule reminder
+	go func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+			if err := s.sendReminder(ctx, reminder); err != nil {
+				s.logger.Error("Failed to send reminder", zap.Error(err))
+			}
+		case <-s.stopCh:
+			return
+		}
+	}()
+
+	return nil
+}
+
+// sendReminder sends a reminder message
+func (s *Scheduler) sendReminder(ctx context.Context, reminder *models.Reminder) error {
+	s.logger.Info("Sending reminder", zap.Uint("reminder_id", reminder.ID))
+
+	// Get task details
+	task, err := s.tasks.GetByID(ctx, reminder.TaskID)
+	if err != nil {
+		return fmt.Errorf("failed to get task: %w", err)
+	}
+
+	// Create reminder message
+	message := fmt.Sprintf("⏰ **Task Reminder**\n\n"+
+		"Task ID: %d\n"+
+		"Type: %s\n"+
+		"Due: %s\n"+
+		"Created: %s\n\n"+
+		"Please choose an action:",
+		task.ID,
+		task.TaskType,
+		task.DueAt.Format("2006-01-02 15:04:05"),
+		task.CreatedAt.Format("2006-01-02 15:04:05"))
+
+	// TODO: Send via ChatOps service
+	// This would require access to the ChatOps service
+	// For now, just log the reminder
+	s.logger.Info("Reminder message ready",
+		zap.Uint("task_id", task.ID),
+		zap.String("message", message))
+
+	// Update reminder state
+	reminder.State = models.ReminderStateDelivered
+	if err := s.reminders.Update(ctx, reminder); err != nil {
+		return fmt.Errorf("failed to update reminder: %w", err)
 	}
 
 	return nil
@@ -202,26 +273,6 @@ func (s *Scheduler) checkDueReminders() error {
 				zap.Error(err))
 			continue
 		}
-	}
-
-	return nil
-}
-
-// sendReminder sends a reminder to the appropriate chat platform
-func (s *Scheduler) sendReminder(ctx context.Context, reminder *models.Reminder) error {
-	s.logger.Info("Sending reminder", zap.Uint("reminder_id", reminder.ID))
-
-	// TODO: Implement sending reminders to chat platforms
-	// This would involve:
-	// 1. Getting the task details
-	// 2. Determining the chat platform (Slack, Google Chat)
-	// 3. Sending the message with interactive buttons
-	// 4. Updating the reminder state
-
-	// For now, just update the reminder state
-	reminder.State = models.ReminderStateDelivered
-	if err := s.reminders.Update(ctx, reminder); err != nil {
-		return fmt.Errorf("failed to update reminder state: %w", err)
 	}
 
 	return nil

@@ -6,6 +6,7 @@ A Kubernetes-native self-service operations portal with multi-cluster support an
 
 K8s Ops Portal is an open-source platform that enables DevOps teams to create, manage, and execute operational tasks across multiple Kubernetes clusters. It provides a web interface, ChatOps integration, and a robust task scheduling system.
 
+
 ## Features
 
 ### Web Portal
@@ -66,7 +67,7 @@ cd ops-butler
 
 ```bash
 helm repo add ops-butler https://BogdanDolia.github.io/ops-butler/charts
-helm install ops-portal ops-butler/ops-portal
+helm install ops-butler ops-butler/ops-butler
 ```
 
 ## License

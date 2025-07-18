@@ -69,11 +69,20 @@ const (
 	TaskOriginSheet      TaskOrigin = "sheet"
 )
 
+// TaskType represents the type of a task
+type TaskType string
+
+const (
+	TaskTypeCheckLogs TaskType = "check_logs"
+	// Add other task types as needed
+)
+
 // TaskInstance represents an instance of a task to be executed
 type TaskInstance struct {
 	gorm.Model
 	TemplateID  uint           `json:"template_id" gorm:"index"`
 	Template    Template       `json:"-" gorm:"foreignKey:TemplateID"`
+	TaskType    TaskType       `json:"task_type" gorm:"default:'check_logs'"`
 	Params      JSONSchema     `json:"params" gorm:"type:jsonb"`
 	State       TaskState      `json:"state" gorm:"default:'pending'"`
 	DueAt       *time.Time     `json:"due_at"`
@@ -104,51 +113,51 @@ const (
 // Reminder represents a scheduled reminder for a task
 type Reminder struct {
 	gorm.Model
-	TaskID     uint          `json:"task_id" gorm:"index"`
-	Task       TaskInstance  `json:"-" gorm:"foreignKey:TaskID"`
-	ChatAt     time.Time     `json:"chat_at" gorm:"index"`
-	State      ReminderState `json:"state" gorm:"default:'pending'"`
-	ChatType   string        `json:"chat_type"` // slack, google_chat
-	ChatID     string        `json:"chat_id"`   // channel ID, space name, etc.
-	MessageID  string        `json:"message_id"`
-	SnoozedAt  *time.Time    `json:"snoozed_at"`
-	SnoozedBy  *uint         `json:"snoozed_by"`
-	CancelledAt *time.Time   `json:"cancelled_at"`
-	CancelledBy *uint        `json:"cancelled_by"`
+	TaskID      uint          `json:"task_id" gorm:"index"`
+	Task        TaskInstance  `json:"-" gorm:"foreignKey:TaskID"`
+	ChatAt      time.Time     `json:"chat_at" gorm:"index"`
+	State       ReminderState `json:"state" gorm:"default:'pending'"`
+	ChatType    string        `json:"chat_type"` // slack, google_chat
+	ChatID      string        `json:"chat_id"`   // channel ID, space name, etc.
+	MessageID   string        `json:"message_id"`
+	SnoozedAt   *time.Time    `json:"snoozed_at"`
+	SnoozedBy   *uint         `json:"snoozed_by"`
+	CancelledAt *time.Time    `json:"cancelled_at"`
+	CancelledBy *uint         `json:"cancelled_by"`
 }
 
 // ExecutionLog represents a log chunk from task execution
 type ExecutionLog struct {
 	gorm.Model
-	TaskID    uint      `json:"task_id" gorm:"index"`
+	TaskID    uint         `json:"task_id" gorm:"index"`
 	Task      TaskInstance `json:"-" gorm:"foreignKey:TaskID"`
-	AgentID   uint      `json:"agent_id" gorm:"index"`
+	AgentID   uint         `json:"agent_id" gorm:"index"`
 	Agent     ClusterAgent `json:"-" gorm:"foreignKey:AgentID"`
-	Chunk     string    `json:"chunk"`
-	Timestamp time.Time `json:"timestamp" gorm:"index"`
-	Stream    string    `json:"stream"` // stdout, stderr
-	Sequence  int       `json:"sequence" gorm:"index"`
+	Chunk     string       `json:"chunk"`
+	Timestamp time.Time    `json:"timestamp" gorm:"index"`
+	Stream    string       `json:"stream"` // stdout, stderr
+	Sequence  int          `json:"sequence" gorm:"index"`
 }
 
 // ClusterAgent represents a cluster agent
 type ClusterAgent struct {
 	gorm.Model
-	Name          string            `json:"name" gorm:"uniqueIndex"`
-	Labels        JSONSchema        `json:"labels" gorm:"type:jsonb"`
-	LastHeartbeat time.Time         `json:"last_heartbeat"`
-	Status        string            `json:"status" gorm:"default:'unknown'"`
-	Version       string            `json:"version"`
-	TaskInstances []TaskInstance    `json:"-" gorm:"foreignKey:AgentID"`
-	Logs          []ExecutionLog    `json:"-" gorm:"foreignKey:AgentID"`
+	Name          string         `json:"name" gorm:"uniqueIndex"`
+	Labels        JSONSchema     `json:"labels" gorm:"type:jsonb"`
+	LastHeartbeat time.Time      `json:"last_heartbeat"`
+	Status        string         `json:"status" gorm:"default:'unknown'"`
+	Version       string         `json:"version"`
+	TaskInstances []TaskInstance `json:"-" gorm:"foreignKey:AgentID"`
+	Logs          []ExecutionLog `json:"-" gorm:"foreignKey:AgentID"`
 }
 
 // User represents a user in the system
 type User struct {
 	gorm.Model
-	Email        string `json:"email" gorm:"uniqueIndex"`
-	Name         string `json:"name"`
-	Role         string `json:"role" gorm:"default:'viewer'"`
-	ExternalID   string `json:"external_id" gorm:"uniqueIndex"`
-	Provider     string `json:"provider"` // github, google, etc.
-	LastLoginAt  *time.Time `json:"last_login_at"`
+	Email       string     `json:"email" gorm:"uniqueIndex"`
+	Name        string     `json:"name"`
+	Role        string     `json:"role" gorm:"default:'viewer'"`
+	ExternalID  string     `json:"external_id" gorm:"uniqueIndex"`
+	Provider    string     `json:"provider"` // github, google, etc.
+	LastLoginAt *time.Time `json:"last_login_at"`
 }
