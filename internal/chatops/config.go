@@ -4,31 +4,19 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+
+	"github.com/BogdanDolia/ops-butler/internal/config"
 )
+
+// Re-export config types for convenience
+type Config = config.ChatOpsConfig
+type SlackConfig = config.SlackConfig
+type GoogleChatConfig = config.GoogleChatConfig
 
 // Config holds the ChatOps configuration
 type Config struct {
 	Slack      SlackConfig
 	GoogleChat GoogleChatConfig
-}
-
-// SlackConfig holds the Slack configuration
-type SlackConfig struct {
-	Enabled        bool
-	Token          string
-	SigningSecret  string
-	AppID          string
-	VerifyToken    string
-	BotUserID      string
-	DefaultChannel string
-}
-
-// GoogleChatConfig holds the Google Chat configuration
-type GoogleChatConfig struct {
-	Enabled        bool
-	ServiceAccount string
-	ProjectID      string
-	DefaultSpace   string
 }
 
 // NewConfig creates a new ChatOps configuration from environment variables
@@ -78,4 +66,25 @@ func getEnvAsBool(key string, defaultValue bool) bool {
 func (c *Config) String() string {
 	return fmt.Sprintf("ChatOps Config: Slack Enabled=%v, Google Chat Enabled=%v",
 		c.Slack.Enabled, c.GoogleChat.Enabled)
+}
+
+// FromConfigChatOps converts a config.ChatOpsConfig to chatops.Config
+func FromConfigChatOps(cfg config.ChatOpsConfig) *Config {
+	return &Config{
+		Slack: SlackConfig{
+			Enabled:        cfg.SlackEnabled,
+			Token:          cfg.SlackToken,
+			SigningSecret:  cfg.SlackSigningSecret,
+			AppID:          "", // Not provided in config.ChatOpsConfig
+			VerifyToken:    "", // Not provided in config.ChatOpsConfig
+			BotUserID:      "", // Not provided in config.ChatOpsConfig
+			DefaultChannel: "general",
+		},
+		GoogleChat: GoogleChatConfig{
+			Enabled:        cfg.GoogleChatEnabled,
+			ServiceAccount: "", // Not provided in config.ChatOpsConfig
+			ProjectID:      "", // Not provided in config.ChatOpsConfig
+			DefaultSpace:   "",
+		},
+	}
 }

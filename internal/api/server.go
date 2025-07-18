@@ -61,9 +61,15 @@ func NewServer(cfg *config.Config, log *zap.Logger, db *database.GormRepository)
 	// Initialize repositories
 	server.initRepositories(db)
 
-	// TODO: Initialize chatops service
-	// In a real implementation, we would initialize the chatops service here
-	// server.chatops = chatops.NewService(cfg.ChatOps, log)
+	// Initialize chatops service
+	if cfg.ChatOps.Slack.Enabled || cfg.ChatOps.GoogleChat.Enabled {
+		chatopsService, err := chatops.NewService(&cfg.ChatOps, log, server)
+		if err != nil {
+			log.Error("Failed to create ChatOps service", zap.Error(err))
+		} else {
+			server.chatops = chatopsService
+		}
+	}
 
 	// Set up middleware
 	server.setupMiddleware()
@@ -143,6 +149,14 @@ func (s *Server) setupRoutes() {
 
 		// WebSocket for real-time logs
 		v1.GET("/ws/logs/:taskId", s.handleWebSocketLogs)
+
+		// ChatOps webhooks
+		chatops := v1.Group("/chatops")
+		{
+			chatops.POST("/slack/webhook", s.handleSlackWebhook)
+			chatops.POST("/slack/slash", s.handleSlackSlashCommand)
+			chatops.POST("/googlechat/webhook", s.handleGoogleChatWebhook)
+		}
 	}
 
 	// Add other routes as needed
@@ -664,4 +678,108 @@ func (s *Server) handleAgentHeartbeat(c *gin.Context) {
 		zap.String("status", agent.Status))
 
 	c.JSON(http.StatusOK, gin.H{"message": "Heartbeat received"})
+}
+
+// Implement TaskActionHandler interface
+func (s *Server) ExecuteTask(taskID uint, userID string) error {
+	// Get task from database
+	task, err := s.tasks.GetByID(context.Background(), taskID)
+	if err != nil {
+		return fmt.Errorf("failed to get task: %w", err)
+	}
+
+	// Update task state
+	task.State = models.TaskStateRunning
+	if err := s.tasks.Update(context.Background(), task); err != nil {
+		return fmt.Errorf("failed to update task state: %w", err)
+	}
+
+	// Execute task logic (simulate for now)
+	go func() {
+		time.Sleep(2 * time.Second)
+		task.State = models.TaskStateCompleted
+		now := time.Now()
+		task.CompletedAt = &now
+		s.tasks.Update(context.Background(), task)
+	}()
+
+	return nil
+}
+
+func (s *Server) SnoozeTask(taskID uint, duration string, userID string) error {
+	// Parse duration
+	dur, err := time.ParseDuration(duration)
+	if err != nil {
+		return fmt.Errorf("invalid duration: %w", err)
+	}
+
+	// Get task from database
+	task, err := s.tasks.GetByID(context.Background(), taskID)
+	if err != nil {
+		return fmt.Errorf("failed to get task: %w", err)
+	}
+
+	// Update due_at time
+	newDueAt := time.Now().Add(dur)
+	task.DueAt = &newDueAt
+	if err := s.tasks.Update(context.Background(), task); err != nil {
+		return fmt.Errorf("failed to update task: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) CancelTask(taskID uint, userID string) error {
+	// Get task from database
+	task, err := s.tasks.GetByID(context.Background(), taskID)
+	if err != nil {
+		return fmt.Errorf("failed to get task: %w", err)
+	}
+
+	// Update task state
+	task.State = models.TaskStateCancelled
+	if err := s.tasks.Update(context.Background(), task); err != nil {
+		return fmt.Errorf("failed to update task state: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) GetTaskLogs(taskID uint) (string, error) {
+	// Get task from database
+	task, err := s.tasks.GetByID(context.Background(), taskID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get task: %w", err)
+	}
+
+	// Simulate getting logs
+	logs := fmt.Sprintf("=== Task %d Execution Logs ===\n", taskID)
+	logs += fmt.Sprintf("Started at: %s\n", task.CreatedAt.Format(time.RFC3339))
+	logs += "Task Type: " + string(task.TaskType) + "\n"
+	logs += "Parameters: " + fmt.Sprintf("%+v", task.Params) + "\n"
+	logs += "State: " + string(task.State) + "\n"
+
+	// Add simulated kubectl logs
+	if task.TaskType == models.TaskTypeCheckLogs {
+		if podName, ok := task.Params["podName"].(string); ok {
+			namespace, _ := task.Params["namespace"].(string)
+			if namespace == "" {
+				namespace = "default"
+			}
+
+			logs += fmt.Sprintf("kubectl logs %s -n %s\n", podName, namespace)
+			logs += fmt.Sprintf("--- Pod %s logs ---\n", podName)
+			for i := 1; i <= 50; i++ {
+				logs += fmt.Sprintf("[%s] Log line %d: Application running normally\n",
+					time.Now().Add(-time.Duration(i)*time.Second).Format("2006-01-02 15:04:05"), i)
+			}
+		}
+	}
+
+	return logs, nil
+}
+
+// executeTaskFromChatOps executes a task from ChatOps
+func (s *Server) executeTaskFromChatOps(taskID uint, userID string) error {
+	return s.ExecuteTask(taskID, userID)
 }

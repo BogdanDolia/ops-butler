@@ -99,6 +99,7 @@ echo "   kind load docker-image ops-butler-agent:dev --name ops-butler"
 echo "🔄 Waiting for deployments to be ready..."
 kubectl -n ops-butler wait --for=condition=available --timeout=300s deployment --all
 
+
 echo "✅ K8s Ops Portal development environment is ready!"
 echo ""
 echo "📊 Access the portal at: http://localhost:8080"
