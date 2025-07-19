@@ -93,7 +93,6 @@ echo "🧪 Testing: Create task with ChatOps integration"
 task_response=$(curl -s -X POST "$API_URL/api/v1/tasks" \
     -H "Content-Type: application/json" \
     -d '{
-        "template_id": 1,
         "params": {
             "podName": "nginx-production",
             "namespace": "default",

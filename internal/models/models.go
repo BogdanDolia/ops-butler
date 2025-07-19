@@ -80,8 +80,8 @@ const (
 // TaskInstance represents an instance of a task to be executed
 type TaskInstance struct {
 	gorm.Model
-	TemplateID  uint           `json:"template_id" gorm:"index"`
-	Template    Template       `json:"-" gorm:"foreignKey:TemplateID"`
+	TemplateID  *uint          `json:"template_id" gorm:"index"`
+	Template    *Template      `json:"-" gorm:"foreignKey:TemplateID"`
 	TaskType    TaskType       `json:"task_type" gorm:"default:'check_logs'"`
 	Params      JSONSchema     `json:"params" gorm:"type:jsonb"`
 	State       TaskState      `json:"state" gorm:"default:'pending'"`

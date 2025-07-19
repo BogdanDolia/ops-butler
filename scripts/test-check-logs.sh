@@ -7,7 +7,6 @@ echo "Creating a 'check logs' task..."
 curl -X POST http://localhost:8080/api/v1/tasks \
   -H "Content-Type: application/json" \
   -d '{
-    "template_id": 1,
     "task_type": "check_logs",
     "params": {
       "podName": "test-pod",

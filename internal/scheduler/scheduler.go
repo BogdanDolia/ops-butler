@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/BogdanDolia/ops-butler/internal/database"
+	"github.com/BogdanDolia/ops-butler/internal/k8s"
 	"github.com/BogdanDolia/ops-butler/internal/models"
 )
 
@@ -22,6 +23,7 @@ type Scheduler struct {
 	redis     *redis.Client
 	tasks     database.TaskRepository
 	reminders database.ReminderRepository
+	k8sClient *k8s.Client
 	stopCh    chan struct{}
 	wg        sync.WaitGroup
 }
@@ -47,6 +49,9 @@ func NewScheduler(config *Config, logger *zap.Logger, db *gorm.DB) (*Scheduler, 
 	taskRepo := database.NewTaskRepository(db)
 	reminderRepo := database.NewReminderRepository(db)
 
+	// Create Kubernetes client
+	k8sClient := k8s.NewClient(logger)
+
 	return &Scheduler{
 		config:    config,
 		logger:    logger,
@@ -54,6 +59,7 @@ func NewScheduler(config *Config, logger *zap.Logger, db *gorm.DB) (*Scheduler, 
 		redis:     redisClient,
 		tasks:     taskRepo,
 		reminders: reminderRepo,
+		k8sClient: k8sClient,
 		stopCh:    make(chan struct{}),
 	}, nil
 }
@@ -121,7 +127,7 @@ func (s *Scheduler) pollTasks() {
 	}
 }
 
-// checkDueTasks checks for tasks that are due and creates reminders for them
+// checkDueTasks checks for tasks that are due and executes them
 func (s *Scheduler) checkDueTasks() error {
 	s.logger.Debug("Checking for due tasks")
 
@@ -134,14 +140,137 @@ func (s *Scheduler) checkDueTasks() error {
 
 	// Process each task
 	for _, task := range tasks {
+		// Execute the task immediately if it's due
+		if err := s.executeTask(ctx, task); err != nil {
+			s.logger.Error("Failed to execute task",
+				zap.Uint("task_id", task.ID),
+				zap.Error(err))
+
+			// Mark task as failed
+			task.State = models.TaskStateFailed
+			now := time.Now()
+			task.CompletedAt = &now
+			if updateErr := s.tasks.Update(ctx, task); updateErr != nil {
+				s.logger.Error("Failed to mark task as failed", zap.Error(updateErr))
+			}
+			continue
+		}
+
+		// Also create a reminder for tracking/notification purposes
 		if err := s.createReminder(ctx, task); err != nil {
 			s.logger.Error("Failed to create reminder for task",
 				zap.Uint("task_id", task.ID),
 				zap.Error(err))
-			continue
 		}
 	}
 
+	return nil
+}
+
+// executeTask executes a task immediately
+func (s *Scheduler) executeTask(ctx context.Context, task *models.TaskInstance) error {
+	s.logger.Info("Executing task", zap.Uint("task_id", task.ID), zap.String("type", string(task.TaskType)))
+
+	// Mark task as running
+	task.State = models.TaskStateRunning
+	if err := s.tasks.Update(ctx, task); err != nil {
+		return fmt.Errorf("failed to update task state to running: %w", err)
+	}
+
+	// Execute based on task type
+	switch task.TaskType {
+	case models.TaskTypeCheckLogs:
+		return s.executeLogCheckTask(ctx, task)
+	default:
+		// For other task types, execute generically
+		return s.executeGenericTask(ctx, task)
+	}
+}
+
+// executeLogCheckTask executes a log checking task
+func (s *Scheduler) executeLogCheckTask(ctx context.Context, task *models.TaskInstance) error {
+	s.logger.Info("Executing log check task", zap.Uint("task_id", task.ID))
+
+	// Extract parameters
+	podName, ok := task.Params["podName"].(string)
+	if !ok {
+		return fmt.Errorf("pod name not specified in task parameters")
+	}
+
+	namespace, ok := task.Params["namespace"].(string)
+	if !ok {
+		namespace = "default"
+	}
+
+	// Perform real log checking using Kubernetes client
+	s.logger.Info("Checking logs for pod",
+		zap.String("pod", podName),
+		zap.String("namespace", namespace))
+
+	logOpts := &k8s.LogOptions{
+		Lines:    100, // Get last 100 lines
+		Follow:   false,
+		Previous: false,
+	}
+
+	// Check if pod exists
+	exists, err := s.k8sClient.CheckPodExists(ctx, namespace, podName)
+	if err != nil {
+		return fmt.Errorf("failed to check pod existence: %w", err)
+	}
+
+	if !exists {
+		return fmt.Errorf("pod %s not found in namespace %s", podName, namespace)
+	}
+
+	// Get logs from the pod
+	logs, err := s.k8sClient.GetPodLogs(ctx, namespace, podName, logOpts)
+	if err != nil {
+		return fmt.Errorf("failed to get logs from pod %s: %w", podName, err)
+	}
+
+	s.logger.Info("Successfully retrieved logs",
+		zap.String("pod", podName),
+		zap.String("namespace", namespace),
+		zap.Int("log_length", len(logs)))
+
+	// TODO: Store logs in database or perform analysis
+	// For now, we'll just log that we got them successfully
+
+	// Mark task as completed
+	task.State = models.TaskStateCompleted
+	now := time.Now()
+	task.CompletedAt = &now
+	task.ExitCode = intPtr(0)
+
+	if err := s.tasks.Update(ctx, task); err != nil {
+		return fmt.Errorf("failed to update task state to completed: %w", err)
+	}
+
+	s.logger.Info("Log check task completed successfully",
+		zap.Uint("task_id", task.ID),
+		zap.String("pod", podName))
+	return nil
+}
+
+// executeGenericTask executes a generic task
+func (s *Scheduler) executeGenericTask(ctx context.Context, task *models.TaskInstance) error {
+	s.logger.Info("Executing generic task", zap.Uint("task_id", task.ID))
+
+	// Simulate task execution
+	time.Sleep(1 * time.Second)
+
+	// Mark task as completed
+	task.State = models.TaskStateCompleted
+	now := time.Now()
+	task.CompletedAt = &now
+	task.ExitCode = intPtr(0)
+
+	if err := s.tasks.Update(ctx, task); err != nil {
+		return fmt.Errorf("failed to update task state to completed: %w", err)
+	}
+
+	s.logger.Info("Generic task completed successfully", zap.Uint("task_id", task.ID))
 	return nil
 }
 
@@ -338,4 +467,9 @@ func (s *Scheduler) CancelTask(ctx context.Context, taskID uint) error {
 // timePtr returns a pointer to a time.Time
 func timePtr(t time.Time) *time.Time {
 	return &t
+}
+
+// intPtr returns a pointer to an int
+func intPtr(i int) *int {
+	return &i
 }

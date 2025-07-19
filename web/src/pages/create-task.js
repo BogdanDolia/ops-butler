@@ -26,9 +26,22 @@ export default function CreateTask() {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
-        setAgents(data);
-        if (data.length > 0) {
-          setFormData(prev => ({ ...prev, agentId: data[0].id }));
+
+        // Handle the new API response structure that includes pagination info
+        let agentsList = [];
+        if (data.agents && Array.isArray(data.agents)) {
+          agentsList = data.agents;
+        } else if (Array.isArray(data)) {
+          // Fallback for old response format
+          agentsList = data;
+        } else {
+          console.warn('Unexpected API response format:', data);
+          agentsList = [];
+        }
+
+        setAgents(agentsList);
+        if (agentsList.length > 0) {
+          setFormData(prev => ({ ...prev, agentId: agentsList[0].id }));
         }
         setLoading(false);
       } catch (error) {
@@ -52,7 +65,8 @@ export default function CreateTask() {
     try {
       // Create a task instance
       const taskData = {
-        template_id: 1, // Assuming a template exists for check_logs
+        // Only include template_id if it's actually needed (not for basic task types)
+        // template_id: 1, // Removed hardcoded template_id
         params: {
           taskType: formData.taskType,
           podName: formData.podName,

@@ -17,7 +17,17 @@ export default function Tasks() {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
-        setTasks(data);
+
+        // Handle the new API response structure that includes pagination info
+        if (data.tasks) {
+          setTasks(data.tasks);
+        } else if (Array.isArray(data)) {
+          // Fallback for direct array response
+          setTasks(data);
+        } else {
+          console.warn('Unexpected API response format:', data);
+          setTasks([]);
+        }
         setLoading(false);
       } catch (error) {
         console.error('Error fetching tasks:', error);
@@ -44,7 +54,11 @@ export default function Tasks() {
       // Refresh the task list
       const updatedResponse = await fetch('/api/v1/tasks');
       const updatedData = await updatedResponse.json();
-      setTasks(updatedData);
+      if (updatedData.tasks) {
+        setTasks(updatedData.tasks);
+      } else if (Array.isArray(updatedData)) {
+        setTasks(updatedData);
+      }
     } catch (error) {
       console.error('Error executing task:', error);
       setError('Failed to execute task. Please try again later.');
@@ -85,8 +99,19 @@ export default function Tasks() {
               {tasks.map((task) => (
                 <tr key={task.id}>
                   <td className="py-2 px-4 border-b">{task.id}</td>
-                  <td className="py-2 px-4 border-b">{task.template_id}</td>
-                  <td className="py-2 px-4 border-b">{task.state}</td>
+                  <td className="py-2 px-4 border-b">
+                    {task.template_id ? `Template ${task.template_id}` : 'No Template'}
+                  </td>
+                  <td className="py-2 px-4 border-b">
+                    <span className={`px-2 py-1 rounded text-sm ${task.state === 'completed' ? 'bg-green-100 text-green-800' :
+                        task.state === 'running' ? 'bg-blue-100 text-blue-800' :
+                          task.state === 'failed' ? 'bg-red-100 text-red-800' :
+                            task.state === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-gray-100 text-gray-800'
+                      }`}>
+                      {task.state}
+                    </span>
+                  </td>
                   <td className="py-2 px-4 border-b">
                     {task.due_at ? new Date(task.due_at).toLocaleString() : 'N/A'}
                   </td>

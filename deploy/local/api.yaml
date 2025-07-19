@@ -21,7 +21,7 @@ spec:
         effect: "NoSchedule"
       containers:
       - name: api
-        image: crcoerph/ops-butler:api-v0.0.1-14
+        image: crcoerph/ops-butler:api-v0.0.1-18
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
@@ -112,3 +112,20 @@ spec:
     targetPort: grpc
     name: grpc
   type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops-butler-api-nodeport
+  namespace: ops-butler
+  labels:
+    app: ops-butler-api
+spec:
+  selector:
+    app: ops-butler-api
+  ports:
+  - port: 8080
+    targetPort: http
+    nodePort: 30090
+    name: http
+  type: NodePort

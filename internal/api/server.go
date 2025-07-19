@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/BogdanDolia/ops-butler/internal/chatops"
 	"github.com/BogdanDolia/ops-butler/internal/config"
 	"github.com/BogdanDolia/ops-butler/internal/database"
+	"github.com/BogdanDolia/ops-butler/internal/k8s"
 	"github.com/BogdanDolia/ops-butler/internal/models"
 )
 
@@ -30,6 +33,7 @@ type Server struct {
 	tasks      database.TaskRepository
 	agents     database.AgentRepository
 	chatops    *chatops.Service
+	k8sClient  *k8s.Client
 	// Add other repositories as needed
 }
 
@@ -60,6 +64,10 @@ func NewServer(cfg *config.Config, log *zap.Logger, db *database.GormRepository)
 
 	// Initialize repositories
 	server.initRepositories(db)
+
+	// Initialize Kubernetes client
+	server.k8sClient = k8s.NewClient(log)
+	log.Info("Kubernetes client initialized successfully")
 
 	// Initialize chatops service
 	log.Info("Initializing ChatOps service",
@@ -166,6 +174,7 @@ func (s *Server) setupRoutes() {
 			agents.GET("/:id", s.handleGetAgent)
 			agents.POST("/register", s.handleRegisterAgent)
 			agents.POST("/heartbeat", s.handleAgentHeartbeat)
+			agents.DELETE("/cleanup", s.handleCleanupInactiveAgents)
 		}
 
 		// WebSocket for real-time logs
@@ -320,40 +329,220 @@ func (s *Server) handleHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, health)
 }
 
-// Placeholder handlers for routes
+// Template management handlers
 func (s *Server) handleListTemplates(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "List templates"})
+	// Parse pagination parameters
+	offset := 0
+	limit := 10
+
+	if offsetParam := c.Query("offset"); offsetParam != "" {
+		if o, err := strconv.Atoi(offsetParam); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
+	if limitParam := c.Query("limit"); limitParam != "" {
+		if l, err := strconv.Atoi(limitParam); err == nil && l > 0 && l <= 100 {
+			limit = l
+		}
+	}
+
+	templates, err := s.templates.List(c.Request.Context(), offset, limit)
+	if err != nil {
+		s.logger.Error("Failed to list templates", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list templates"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"templates": templates,
+		"count":     len(templates),
+		"offset":    offset,
+		"limit":     limit,
+	})
 }
 
 func (s *Server) handleGetTemplate(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Get template"})
+	// Parse template ID from URL parameter
+	templateID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid template ID"})
+		return
+	}
+
+	template, err := s.templates.GetByID(c.Request.Context(), uint(templateID))
+	if err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Template not found"})
+			return
+		}
+		s.logger.Error("Failed to get template", zap.Error(err), zap.Uint("id", uint(templateID)))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get template"})
+		return
+	}
+
+	c.JSON(http.StatusOK, template)
 }
 
 func (s *Server) handleCreateTemplate(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Create template"})
+	var template models.Template
+	if err := c.ShouldBindJSON(&template); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate required fields
+	if template.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Template name is required"})
+		return
+	}
+
+	if template.Script == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Template script is required"})
+		return
+	}
+
+	// Create the template
+	err := s.templates.Create(c.Request.Context(), &template)
+	if err != nil {
+		s.logger.Error("Failed to create template", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create template"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, template)
 }
 
 func (s *Server) handleUpdateTemplate(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Update template"})
+	// Parse template ID from URL parameter
+	templateID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid template ID"})
+		return
+	}
+
+	// Check if template exists
+	existingTemplate, err := s.templates.GetByID(c.Request.Context(), uint(templateID))
+	if err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Template not found"})
+			return
+		}
+		s.logger.Error("Failed to get template", zap.Error(err), zap.Uint("id", uint(templateID)))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get template"})
+		return
+	}
+
+	// Parse the updated template data
+	var updateData models.Template
+	if err := c.ShouldBindJSON(&updateData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Update the template fields
+	existingTemplate.Name = updateData.Name
+	existingTemplate.Description = updateData.Description
+	existingTemplate.Script = updateData.Script
+	existingTemplate.ParamsSchema = updateData.ParamsSchema
+	existingTemplate.RequireApproval = updateData.RequireApproval
+
+	// Validate required fields
+	if existingTemplate.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Template name is required"})
+		return
+	}
+
+	if existingTemplate.Script == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Template script is required"})
+		return
+	}
+
+	err = s.templates.Update(c.Request.Context(), existingTemplate)
+	if err != nil {
+		s.logger.Error("Failed to update template", zap.Error(err), zap.Uint("id", uint(templateID)))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update template"})
+		return
+	}
+
+	c.JSON(http.StatusOK, existingTemplate)
 }
 
 func (s *Server) handleDeleteTemplate(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Delete template"})
+	// Parse template ID from URL parameter
+	templateID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid template ID"})
+		return
+	}
+
+	// Delete the template
+	err = s.templates.Delete(c.Request.Context(), uint(templateID))
+	if err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Template not found"})
+			return
+		}
+		s.logger.Error("Failed to delete template", zap.Error(err), zap.Uint("id", uint(templateID)))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete template"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Template deleted successfully"})
 }
 
 func (s *Server) handleListTasks(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "List tasks"})
+	// Parse pagination parameters
+	offset := 0
+	limit := 10
+
+	if offsetParam := c.Query("offset"); offsetParam != "" {
+		if o, err := strconv.Atoi(offsetParam); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
+	if limitParam := c.Query("limit"); limitParam != "" {
+		if l, err := strconv.Atoi(limitParam); err == nil && l > 0 && l <= 100 {
+			limit = l
+		}
+	}
+
+	tasks, err := s.tasks.List(c.Request.Context(), offset, limit)
+	if err != nil {
+		s.logger.Error("Failed to list tasks", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list tasks"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"tasks":  tasks,
+		"count":  len(tasks),
+		"offset": offset,
+		"limit":  limit,
+	})
 }
 
 func (s *Server) handleGetTask(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Get task"})
+	// Parse task ID from URL parameter
+	taskID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid task ID"})
+		return
+	}
+
+	task, err := s.tasks.GetByID(c.Request.Context(), uint(taskID))
+	if err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+			return
+		}
+		s.logger.Error("Failed to get task", zap.Error(err), zap.Uint("id", uint(taskID)))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get task"})
+		return
+	}
+
+	c.JSON(http.StatusOK, task)
 }
 
 func (s *Server) handleCreateTask(c *gin.Context) {
@@ -369,6 +558,24 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	}
 	if task.Origin == "" {
 		task.Origin = models.TaskOriginWeb
+	}
+
+	// Validate TemplateID if provided
+	if task.TemplateID != nil && *task.TemplateID != 0 {
+		// Check if the template exists
+		_, err := s.templates.GetByID(c.Request.Context(), *task.TemplateID)
+		if err != nil {
+			if errors.Is(err, database.ErrNotFound) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Template with ID %d not found", *task.TemplateID)})
+				return
+			}
+			s.logger.Error("Failed to validate template", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate template"})
+			return
+		}
+	} else {
+		// For task types that don't require a template, set TemplateID to nil
+		task.TemplateID = nil
 	}
 
 	// Set agent_id to nil to avoid foreign key constraint violation
@@ -387,13 +594,111 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 }
 
 func (s *Server) handleUpdateTask(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Update task"})
+	// Parse task ID from URL parameter
+	taskID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid task ID"})
+		return
+	}
+
+	// Check if task exists
+	existingTask, err := s.tasks.GetByID(c.Request.Context(), uint(taskID))
+	if err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+			return
+		}
+		s.logger.Error("Failed to get task", zap.Error(err), zap.Uint("id", uint(taskID)))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get task"})
+		return
+	}
+
+	// Parse the updated task data
+	var updateData models.TaskInstance
+	if err := c.ShouldBindJSON(&updateData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Update only the fields that are allowed to be modified
+	if updateData.State != "" {
+		existingTask.State = updateData.State
+	}
+	if updateData.DueAt != nil {
+		existingTask.DueAt = updateData.DueAt
+	}
+	if updateData.Params != nil {
+		existingTask.Params = updateData.Params
+	}
+	if updateData.AgentID != nil {
+		existingTask.AgentID = updateData.AgentID
+	}
+	if updateData.ApprovedBy != nil {
+		existingTask.ApprovedBy = updateData.ApprovedBy
+	}
+	if updateData.ApprovedAt != nil {
+		existingTask.ApprovedAt = updateData.ApprovedAt
+	}
+
+	// Validate and update TemplateID if provided
+	if updateData.TemplateID != nil {
+		if *updateData.TemplateID == 0 {
+			// Setting to nil/null
+			existingTask.TemplateID = nil
+		} else {
+			// Validate that template exists
+			_, err := s.templates.GetByID(c.Request.Context(), *updateData.TemplateID)
+			if err != nil {
+				if errors.Is(err, database.ErrNotFound) {
+					c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Template with ID %d not found", *updateData.TemplateID)})
+					return
+				}
+				s.logger.Error("Failed to validate template", zap.Error(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate template"})
+				return
+			}
+			existingTask.TemplateID = updateData.TemplateID
+		}
+	}
+
+	// Update completion timestamp if task is being marked as completed/failed/cancelled
+	if updateData.State == models.TaskStateCompleted || updateData.State == models.TaskStateFailed || updateData.State == models.TaskStateCancelled {
+		now := time.Now()
+		existingTask.CompletedAt = &now
+	}
+
+	// Save the updated task
+	err = s.tasks.Update(c.Request.Context(), existingTask)
+	if err != nil {
+		s.logger.Error("Failed to update task", zap.Error(err), zap.Uint("id", uint(taskID)))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update task"})
+		return
+	}
+
+	c.JSON(http.StatusOK, existingTask)
 }
 
 func (s *Server) handleDeleteTask(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"message": "Delete task"})
+	// Parse task ID from URL parameter
+	taskID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid task ID"})
+		return
+	}
+
+	// Delete the task
+	err = s.tasks.Delete(c.Request.Context(), uint(taskID))
+	if err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+			return
+		}
+		s.logger.Error("Failed to delete task", zap.Error(err), zap.Uint("id", uint(taskID)))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete task"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Task deleted successfully"})
 }
 
 func (s *Server) handleExecuteTask(c *gin.Context) {
@@ -441,11 +746,42 @@ func (s *Server) handleExecuteTask(c *gin.Context) {
 			return
 		}
 
-		// TODO: Implement logic to get logs from the pod
-		// For now, we'll just simulate getting logs
-		logs := fmt.Sprintf("Simulated logs for pod %s in namespace %s\n", podName, namespace)
-		for i := 1; i <= 40; i++ {
-			logs += fmt.Sprintf("Log line %d: This is a simulated log line\n", i)
+		// Get logs from the pod using Kubernetes client
+		logOpts := &k8s.LogOptions{
+			Lines:    100, // Get last 100 lines
+			Follow:   false,
+			Previous: false,
+		}
+
+		var logs string
+
+		// Check if pod exists first
+		exists, err := s.k8sClient.CheckPodExists(c.Request.Context(), namespace, podName)
+		if err != nil {
+			s.logger.Error("Failed to check pod existence", zap.Error(err))
+			logs = fmt.Sprintf("Error checking pod existence: %v\n", err)
+			logs += fmt.Sprintf("Simulated logs for pod %s in namespace %s\n", podName, namespace)
+			for i := 1; i <= 40; i++ {
+				logs += fmt.Sprintf("Log line %d: This is a simulated log line\n", i)
+			}
+		} else if !exists {
+			s.logger.Warn("Pod does not exist", zap.String("pod", podName), zap.String("namespace", namespace))
+			logs = fmt.Sprintf("Pod %s not found in namespace %s\n", podName, namespace)
+			logs += "Simulated logs (pod not found):\n"
+			for i := 1; i <= 40; i++ {
+				logs += fmt.Sprintf("Log line %d: This is a simulated log line\n", i)
+			}
+		} else {
+			logs, err = s.k8sClient.GetPodLogs(c.Request.Context(), namespace, podName, logOpts)
+			if err != nil {
+				s.logger.Error("Failed to get pod logs", zap.Error(err))
+				// Fallback to simulated logs if real logs fail
+				logs = fmt.Sprintf("Error getting real logs: %v\n", err)
+				logs += fmt.Sprintf("Simulated logs for pod %s in namespace %s\n", podName, namespace)
+				for i := 1; i <= 40; i++ {
+					logs += fmt.Sprintf("Log line %d: This is a simulated log line\n", i)
+				}
+			}
 		}
 
 		// Create a reminder for the task
@@ -527,11 +863,42 @@ func (s *Server) handleGetTaskLogs(c *gin.Context) {
 			namespace = "default" // Default namespace
 		}
 
-		// TODO: Implement logic to get logs from the pod
-		// For now, we'll just simulate getting logs
-		logs := fmt.Sprintf("Simulated logs for pod %s in namespace %s\n", podName, namespace)
-		for i := 1; i <= 40; i++ {
-			logs += fmt.Sprintf("Log line %d: This is a simulated log line\n", i)
+		// Get logs from the pod using Kubernetes client
+		logOpts := &k8s.LogOptions{
+			Lines:    200, // Get last 200 lines for manual log retrieval
+			Follow:   false,
+			Previous: false,
+		}
+
+		var logs string
+
+		// Check if pod exists first
+		exists, err := s.k8sClient.CheckPodExists(c.Request.Context(), namespace, podName)
+		if err != nil {
+			s.logger.Error("Failed to check pod existence", zap.Error(err))
+			logs = fmt.Sprintf("Error checking pod existence: %v\n", err)
+			logs += fmt.Sprintf("Simulated logs for pod %s in namespace %s\n", podName, namespace)
+			for i := 1; i <= 40; i++ {
+				logs += fmt.Sprintf("Log line %d: This is a simulated log line\n", i)
+			}
+		} else if !exists {
+			s.logger.Warn("Pod does not exist", zap.String("pod", podName), zap.String("namespace", namespace))
+			logs = fmt.Sprintf("Pod %s not found in namespace %s\n", podName, namespace)
+			logs += "Simulated logs (pod not found):\n"
+			for i := 1; i <= 40; i++ {
+				logs += fmt.Sprintf("Log line %d: This is a simulated log line\n", i)
+			}
+		} else {
+			logs, err = s.k8sClient.GetPodLogs(c.Request.Context(), namespace, podName, logOpts)
+			if err != nil {
+				s.logger.Error("Failed to get pod logs", zap.Error(err))
+				// Fallback to simulated logs if real logs fail
+				logs = fmt.Sprintf("Error getting real logs: %v\n", err)
+				logs += fmt.Sprintf("Simulated logs for pod %s in namespace %s\n", podName, namespace)
+				for i := 1; i <= 40; i++ {
+					logs += fmt.Sprintf("Log line %d: This is a simulated log line\n", i)
+				}
+			}
 		}
 
 		// Return the logs
@@ -547,15 +914,61 @@ func (s *Server) handleGetTaskLogs(c *gin.Context) {
 }
 
 func (s *Server) handleListAgents(c *gin.Context) {
-	// Get agents from the repository
-	agents, err := s.agents.List(c.Request.Context(), 0, 10)
+	// Parse query parameters
+	showInactive := c.Query("show_inactive") == "true"
+
+	// Get all agents from the repository
+	agents, err := s.agents.List(c.Request.Context(), 0, 100) // Increased limit for now
 	if err != nil {
 		s.logger.Error("Failed to list agents", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list agents"})
 		return
 	}
 
-	c.JSON(http.StatusOK, agents)
+	// Filter and update agent status based on heartbeat activity
+	activeAgents := make([]*models.ClusterAgent, 0)
+	now := time.Now()
+	heartbeatThreshold := 5 * time.Minute // Consider agents inactive if no heartbeat in 5 minutes
+
+	for _, agent := range agents {
+		// Check if agent is active based on last heartbeat
+		timeSinceLastHeartbeat := now.Sub(agent.LastHeartbeat)
+
+		// Update agent status based on heartbeat recency
+		wasActive := agent.Status == "active" || agent.Status == "healthy"
+		isCurrentlyActive := timeSinceLastHeartbeat <= heartbeatThreshold
+
+		if isCurrentlyActive && !wasActive {
+			// Agent came back online, update status
+			agent.Status = "active"
+			s.agents.Update(c.Request.Context(), agent)
+		} else if !isCurrentlyActive && wasActive {
+			// Agent went offline, update status
+			agent.Status = "inactive"
+			s.agents.Update(c.Request.Context(), agent)
+		} else if !isCurrentlyActive {
+			// Ensure status reflects inactivity
+			agent.Status = "inactive"
+		}
+
+		// Include agent in response based on filter
+		if isCurrentlyActive || showInactive {
+			activeAgents = append(activeAgents, agent)
+		}
+	}
+
+	// Add metadata about filtering
+	response := gin.H{
+		"agents": activeAgents,
+		"count":  len(activeAgents),
+		"total":  len(agents),
+		"filter": map[string]interface{}{
+			"show_inactive":       showInactive,
+			"heartbeat_threshold": heartbeatThreshold.String(),
+		},
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 func (s *Server) handleGetAgent(c *gin.Context) {
@@ -817,4 +1230,55 @@ func (s *Server) GetTaskLogs(taskID uint) (string, error) {
 // executeTaskFromChatOps executes a task from ChatOps
 func (s *Server) executeTaskFromChatOps(taskID uint, userID string) error {
 	return s.ExecuteTask(taskID, userID)
+}
+
+func (s *Server) handleCleanupInactiveAgents(c *gin.Context) {
+	// Get cleanup threshold from query parameter (default: 1 hour)
+	thresholdStr := c.DefaultQuery("threshold", "1h")
+	threshold, err := time.ParseDuration(thresholdStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid threshold format"})
+		return
+	}
+
+	// Get all agents
+	agents, err := s.agents.List(c.Request.Context(), 0, 1000)
+	if err != nil {
+		s.logger.Error("Failed to list agents for cleanup", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list agents"})
+		return
+	}
+
+	// Find agents to cleanup
+	var agentsToDelete []uint
+	now := time.Now()
+
+	for _, agent := range agents {
+		timeSinceLastHeartbeat := now.Sub(agent.LastHeartbeat)
+		if timeSinceLastHeartbeat > threshold {
+			agentsToDelete = append(agentsToDelete, agent.ID)
+		}
+	}
+
+	// Delete inactive agents
+	deletedCount := 0
+	for _, agentID := range agentsToDelete {
+		if err := s.agents.Delete(c.Request.Context(), agentID); err != nil {
+			s.logger.Error("Failed to delete inactive agent",
+				zap.Error(err),
+				zap.Uint("agent_id", agentID))
+		} else {
+			deletedCount++
+			s.logger.Info("Deleted inactive agent",
+				zap.Uint("agent_id", agentID))
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":          "Cleanup completed",
+		"threshold":        thresholdStr,
+		"agents_found":     len(agents),
+		"agents_deleted":   deletedCount,
+		"agents_remaining": len(agents) - deletedCount,
+	})
 }

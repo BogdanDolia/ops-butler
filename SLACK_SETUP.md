@@ -9,8 +9,8 @@ I've updated your configuration files with your real Slack tokens:
 ```yaml
 # deploy/local/chatops.yaml
 SLACK_ENABLED: "true"
-SLACK_TOKEN: "xoxb-8948822092324-9217588031638-SA83KBY2H0Zgie0ZKQu43cEv"
-SLACK_SIGNING_SECRET: "aea37904257a9f07f1df03ee860f9594"
+SLACK_TOKEN: "xoxb-89"
+SLACK_SIGNING_SECRET: "aea"
 SLACK_DEFAULT_CHANNEL: "#ops-alerts"
 SLACK_DEMO_MODE: "false"  # Real Slack integration
 ```
@@ -107,8 +107,8 @@ Once deployed, test everything:
 
 ```bash
 # Test with your actual tokens
-export SLACK_TOKEN="xoxb-8948822092324-9217588031638-SA83KBY2H0Zgie0ZKQu43cEv"
-export SLACK_SIGNING_SECRET="aea37904257a9f07f1df03ee860f9594"
+export SLACK_TOKEN="xoxb-89"
+export SLACK_SIGNING_SECRET="aea"
 export API_URL="https://your-domain.com"  # or ngrok URL
 
 ./scripts/test-real-slack.sh

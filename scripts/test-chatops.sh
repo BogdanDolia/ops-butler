@@ -78,18 +78,22 @@ test_endpoint "/api/v1/chatops/test/googlechat" "POST" '{
     "message": "Hello from Google Chat test! 🤖"
 }' "Simple Google Chat message"
 
-# Test creating a task
-test_endpoint "/api/v1/tasks" "POST" '{
-    "template_id": 1,
-    "params": {
-        "podName": "nginx-pod",
-        "namespace": "default",
-        "chatType": "slack",
-        "chatId": "#general"
-    },
-    "state": "pending",
-    "origin": "web"
-}' "Create task"
+# Test creating a task that will trigger ChatOps
+echo ""
+echo "🧪 Testing: Create task with ChatOps integration"
+task_response=$(curl -s -X POST "$API_URL/api/v1/tasks" \
+    -H "Content-Type: application/json" \
+    -d '{
+        "params": {
+            "podName": "nginx-production",
+            "namespace": "default",
+            "chatType": "slack",
+            "chatId": "'$SLACK_DEFAULT_CHANNEL'"
+        },
+        "state": "pending",
+        "origin": "chatops_test"
+    }' \
+    -w "HTTP_%{http_code}")
 
 echo ""
 echo "🎉 ChatOps testing completed!"
