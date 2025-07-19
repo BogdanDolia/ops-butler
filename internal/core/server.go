@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -22,9 +23,9 @@ type Config struct {
 		Host string `json:"host"`
 		Port int    `json:"port"`
 	} `json:"server"`
-	Database *database.Config `json:"database"`
+	Database *database.Config    `json:"database"`
 	Slack    *slackClient.Config `json:"slack"`
-	K8s      *K8sConfig `json:"k8s"`
+	K8s      *K8sConfig          `json:"k8s"`
 }
 
 // Server represents the Core server
@@ -148,19 +149,20 @@ func (s *Server) handleSlackCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse form values
-	if err := r.ParseForm(); err != nil {
+	// Parse form values from the body we already read
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
 		s.logger.Error("Failed to parse form", zap.Error(err))
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
 
 	// Extract command parameters
-	command := r.Form.Get("command")
-	text := r.Form.Get("text")
-	channelID := r.Form.Get("channel_id")
-	userID := r.Form.Get("user_id")
-	userName := r.Form.Get("user_name")
+	command := values.Get("command")
+	text := values.Get("text")
+	channelID := values.Get("channel_id")
+	userID := values.Get("user_id")
+	userName := values.Get("user_name")
 
 	// Parse command
 	subCommand, args, err := s.slack.ParseSlashCommand(command, text)
