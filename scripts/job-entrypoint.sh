@@ -43,17 +43,35 @@ case "$TASK_TYPE" in
     
     log "Collecting logs from pod $pod_name"
     
-    # Get namespace from parameter or use default
-    namespace=${namespace:-"default"}
-    
-    # Check if pod exists
-    if ! kubectl get pod "$pod_name" -n "$namespace" &>/dev/null; then
-      handle_error "Pod $pod_name not found in namespace $namespace"
+    # Check if namespace is provided
+    if [ -n "$namespace" ]; then
+      # Check if pod exists in the specified namespace
+      log "Checking for pod $pod_name in namespace $namespace"
+      if ! kubectl get pod "$pod_name" -n "$namespace" &>/dev/null; then
+        handle_error "Pod $pod_name not found in namespace $namespace"
+      fi
+      
+      # Collect logs from the specified namespace
+      log "Retrieving logs from pod $pod_name in namespace $namespace"
+      kubectl logs "$pod_name" -n "$namespace" --tail=1000 || handle_error "Failed to retrieve logs"
+    else
+      # Search for pod in all namespaces
+      log "Searching for pod $pod_name in all namespaces"
+      pod_info=$(kubectl get pod "$pod_name" --all-namespaces -o custom-columns=NAMESPACE:.metadata.namespace --no-headers 2>/dev/null)
+      
+      # Check if pod was found
+      if [ -z "$pod_info" ]; then
+        handle_error "Pod $pod_name not found in any namespace"
+      fi
+      
+      # If multiple pods with the same name exist in different namespaces, use the first one
+      found_namespace=$(echo "$pod_info" | head -n 1)
+      log "Found pod $pod_name in namespace $found_namespace"
+      
+      # Collect logs
+      log "Retrieving logs from pod $pod_name in namespace $found_namespace"
+      kubectl logs "$pod_name" -n "$found_namespace" --tail=1000 || handle_error "Failed to retrieve logs"
     fi
-    
-    # Collect logs
-    log "Retrieving logs from pod $pod_name in namespace $namespace"
-    kubectl logs "$pod_name" -n "$namespace" --tail=1000 || handle_error "Failed to retrieve logs"
     
     log "Logs collected successfully"
     ;;

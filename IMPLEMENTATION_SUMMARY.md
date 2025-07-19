@@ -34,7 +34,7 @@ This document summarizes the implementation of the Ops-Butler project according 
 #### Task Integration with ChatOps
 - ✅ Tasks triggered via Slack create Kubernetes Jobs automatically
 - ✅ Job outputs are sent back to the originating Slack channel or thread
-- ✅ Supports commands like /ops collect-logs [pod-name] and /ops status
+- ✅ Supports commands like /ops collect-logs [pod-name] [namespace] and /ops status
 
 ### Deployment and Kubernetes Configuration
 

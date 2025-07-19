@@ -130,7 +130,7 @@ kubectl apply -f deploy/k8s/webui.yaml
 
 - `/ops help` - Show help message
 - `/ops status` - Show system status
-- `/ops collect-logs [pod-name]` - Collect logs from a pod
+- `/ops collect-logs [pod-name] [namespace]` - Collect logs from a pod (if namespace is not provided, searches in all namespaces)
 - `/ops list` - List recent tasks
 
 ### Web UI

@@ -257,7 +257,7 @@ func (s *Server) handleHelpCommand() string {
 	return `Available commands:
 - /ops help - Show this help message
 - /ops status - Show system status
-- /ops collect-logs [pod-name] - Collect logs from a pod
+- /ops collect-logs [pod-name] [namespace] - Collect logs from a pod (if namespace is not provided, searches in all namespaces)
 - /ops list - List recent tasks`
 }
 
@@ -303,10 +303,16 @@ func (s *Server) handleStatusCommand(channelID, userID, userName string) string 
 // handleCollectLogsCommand handles the collect-logs command
 func (s *Server) handleCollectLogsCommand(channelID, userID, userName string, args []string) string {
 	if len(args) < 1 {
-		return "Please specify a pod name. Usage: `/ops collect-logs [pod-name]`"
+		return "Please specify a pod name. Usage: `/ops collect-logs [pod-name] [namespace]`"
 	}
 
 	podName := args[0]
+
+	// Check if namespace is provided
+	var namespace string
+	if len(args) > 1 {
+		namespace = args[1]
+	}
 
 	// Create a task for log collection
 	task := &models.TaskInstance{
@@ -318,6 +324,11 @@ func (s *Server) handleCollectLogsCommand(channelID, userID, userName string, ar
 		Params: models.JSONSchema{
 			"pod_name": podName,
 		},
+	}
+
+	// Add namespace to parameters if provided
+	if namespace != "" {
+		task.Params["namespace"] = namespace
 	}
 
 	if err := s.db.CreateTask(task); err != nil {
