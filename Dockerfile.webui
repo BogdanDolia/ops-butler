@@ -3,6 +3,13 @@ FROM golang:1.21 AS builder
 # Set working directory
 WORKDIR /app
 
+# Install SQLite development packages for CGO
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libc6-dev \
+    libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy go.mod and go.sum
 COPY go.mod go.sum ./
 
@@ -12,14 +19,21 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application with static linking to avoid GLIBC version issues
-RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags='-extldflags "-static"' -o ops-butler-webui ./cmd/webui
+# Ensure all dependencies are properly resolved
+RUN go mod tidy
+
+# Build the application with CGO enabled for SQLite support
+RUN CGO_ENABLED=1 GOOS=linux go build -a -o ops-butler-webui ./cmd/webui
 
 # Create final image
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
-# Install required packages
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates sqlite3 && rm -rf /var/lib/apt/lists/*
+# Install required packages including SQLite and its shared libraries
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    sqlite3 \
+    libsqlite3-0 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
 RUN groupadd -g 1000 opsbutler && \

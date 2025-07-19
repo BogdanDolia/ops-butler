@@ -26,7 +26,7 @@ RUN go mod tidy
 RUN CGO_ENABLED=1 GOOS=linux go build -a -o ops-butler-core ./cmd/core
 
 # Create final image
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 # Install required packages including SQLite and its shared libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -49,8 +49,8 @@ spec:
     spec:
       containers:
       - name: webui
-        image: crcoerph/ops-butler-webui:v0.0.3
-        imagePullPolicy: IfNotPresent
+        image: crcoerph/ops-butler-webui:v0.0.4
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
           name: http
