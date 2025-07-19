@@ -3,6 +3,13 @@ FROM golang:1.21 AS builder
 # Set working directory
 WORKDIR /app
 
+# Install SQLite development packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libc6-dev \
+    libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy go.mod and go.sum
 COPY go.mod go.sum ./
 
@@ -15,18 +22,22 @@ COPY . .
 # Ensure all dependencies are properly resolved
 RUN go mod tidy
 
-# Build the application with static linking to avoid libc compatibility issues
-RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags='-extldflags "-static"' -o ops-butler-core ./cmd/core
+# Build the application with CGO enabled for SQLite support
+RUN CGO_ENABLED=1 GOOS=linux go build -a -o ops-butler-core ./cmd/core
 
 # Create final image
-FROM alpine:3.18
+FROM debian:bullseye-slim
 
-# Install required packages
-RUN apk add --no-cache ca-certificates sqlite
+# Install required packages including SQLite and its shared libraries
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    sqlite3 \
+    libsqlite3-0 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
-RUN addgroup -g 1000 opsbutler && \
-    adduser -u 1000 -G opsbutler -s /bin/sh -D opsbutler
+RUN groupadd -g 1000 opsbutler && \
+    useradd -u 1000 -g opsbutler -s /bin/sh -m opsbutler
 
 # Create directories
 RUN mkdir -p /app /data && \
