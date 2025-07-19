@@ -1,6 +1,9 @@
 package slack
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -67,7 +70,7 @@ func (c *Client) SendTaskUpdate(task *models.TaskInstance, text string) error {
 	}
 
 	options := []slack.MsgOption{}
-	
+
 	// If we have a thread, reply to it
 	if task.SlackThread != "" {
 		options = append(options, slack.MsgOptionTS(task.SlackThread))
@@ -89,7 +92,7 @@ func (c *Client) SendTaskUpdate(task *models.TaskInstance, text string) error {
 			},
 		},
 	}
-	
+
 	// Add task type and template if available
 	if task.TaskType != "" {
 		attachment.Fields = append(attachment.Fields, slack.AttachmentField{
@@ -98,7 +101,7 @@ func (c *Client) SendTaskUpdate(task *models.TaskInstance, text string) error {
 			Short: true,
 		})
 	}
-	
+
 	if task.Template != nil {
 		attachment.Fields = append(attachment.Fields, slack.AttachmentField{
 			Title: "Template",
@@ -144,7 +147,18 @@ func (c *Client) ParseSlashCommand(command string, text string) (string, []strin
 
 // VerifySignature verifies the signature of a Slack request
 func (c *Client) VerifySignature(signature, timestamp, body string) bool {
-	return slack.ValidateSignature(signature, timestamp, body, c.config.SigningKey)
+	// Create the base string as per Slack docs: v0:timestamp:body
+	baseString := fmt.Sprintf("v0:%s:%s", timestamp, body)
+
+	// Create an HMAC-SHA256 hash using the signing secret as the key
+	mac := hmac.New(sha256.New, []byte(c.config.SigningKey))
+	mac.Write([]byte(baseString))
+
+	// Get the hex-encoded hash value
+	expectedSignature := fmt.Sprintf("v0=%s", hex.EncodeToString(mac.Sum(nil)))
+
+	// Compare the computed signature with the provided one
+	return hmac.Equal([]byte(expectedSignature), []byte(signature))
 }
 
 // getColorForTaskState returns a color for a task state

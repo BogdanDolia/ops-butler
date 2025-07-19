@@ -5,10 +5,14 @@ RUN apk add --no-cache \
     bash \
     curl \
     jq \
-    kubectl \
     python3 \
     py3-pip \
     ca-certificates
+
+# Install kubectl
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')/kubectl" && \
+    chmod +x kubectl && \
+    mv kubectl /usr/local/bin/
 
 # Create a non-root user to run the job
 RUN addgroup -g 1000 opsbutler && \
