@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.21 AS builder
 
 # Set working directory
 WORKDIR /app
@@ -6,27 +6,24 @@ WORKDIR /app
 # Copy go.mod and go.sum
 COPY go.mod go.sum ./
 
-# Install build dependencies for CGO
-RUN apk add --no-cache gcc musl-dev
-
 # Download dependencies
 RUN go mod download
 
 # Copy source code
 COPY . .
 
-# Build the application
-RUN CGO_ENABLED=1 GOOS=linux go build -a -o ops-butler-webui ./cmd/webui
+# Build the application with static linking to avoid GLIBC version issues
+RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags='-extldflags "-static"' -o ops-butler-webui ./cmd/webui
 
 # Create final image
-FROM alpine:3.18
+FROM debian:bullseye-slim
 
 # Install required packages
-RUN apk add --no-cache ca-certificates sqlite
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates sqlite3 && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
-RUN addgroup -g 1000 opsbutler && \
-    adduser -u 1000 -G opsbutler -s /bin/sh -D opsbutler
+RUN groupadd -g 1000 opsbutler && \
+    useradd -u 1000 -g opsbutler -s /bin/bash -m opsbutler
 
 # Create directories
 RUN mkdir -p /app /data /app/public && \
