@@ -55,7 +55,7 @@ data:
   K8S_IN_CLUSTER: "true"
   K8S_NAMESPACE: "ops-butler"
   K8S_JOB_TTL_SECONDS: "3600"
-  K8S_JOB_IMAGE: "ops-butler-job:latest"
+  K8S_JOB_IMAGE: "crcoerph/ops-butler-job:latest"
   K8S_JOB_PULL_POLICY: "IfNotPresent"
   K8S_JOB_SERVICE_ACCOUNT: "ops-butler-job"
 ---
@@ -112,8 +112,8 @@ spec:
       serviceAccountName: ops-butler-core
       containers:
       - name: core
-        image: ops-butler-core:latest
-        imagePullPolicy: IfNotPresent
+        image: crcoerph/ops-butler-core:v0.0.5
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
           name: http
