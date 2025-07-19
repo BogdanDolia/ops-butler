@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ops-butler
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ops-butler-core
+  namespace: ops-butler
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ops-butler-core
+  namespace: ops-butler
+rules:
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "get", "list", "watch", "delete"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ops-butler-core
+  namespace: ops-butler
+subjects:
+- kind: ServiceAccount
+  name: ops-butler-core
+  namespace: ops-butler
+roleRef:
+  kind: Role
+  name: ops-butler-core
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ops-butler-job
+  namespace: ops-butler
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ops-butler-core-config
+  namespace: ops-butler
+data:
+  SERVER_HOST: "0.0.0.0"
+  SERVER_PORT: "8080"
+  DB_TYPE: "sqlite"
+  DB_PATH: "/data/ops-butler.db"
+  K8S_IN_CLUSTER: "true"
+  K8S_NAMESPACE: "ops-butler"
+  K8S_JOB_TTL_SECONDS: "3600"
+  K8S_JOB_IMAGE: "ops-butler-job:latest"
+  K8S_JOB_PULL_POLICY: "IfNotPresent"
+  K8S_JOB_SERVICE_ACCOUNT: "ops-butler-job"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ops-butler-core-secrets
+  namespace: ops-butler
+type: Opaque
+data:
+  # These values should be base64 encoded in a real deployment
+  SLACK_BOT_TOKEN: ""
+  SLACK_APP_TOKEN: ""
+  SLACK_SIGNING_KEY: ""
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops-butler-core
+  namespace: ops-butler
+  labels:
+    app: ops-butler
+    component: core
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  selector:
+    app: ops-butler
+    component: core
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ops-butler-core
+  namespace: ops-butler
+  labels:
+    app: ops-butler
+    component: core
+spec:
+  serviceName: ops-butler-core
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ops-butler
+      component: core
+  template:
+    metadata:
+      labels:
+        app: ops-butler
+        component: core
+    spec:
+      serviceAccountName: ops-butler-core
+      containers:
+      - name: core
+        image: ops-butler-core:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        envFrom:
+        - configMapRef:
+            name: ops-butler-core-config
+        - secretRef:
+            name: ops-butler-core-secrets
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi

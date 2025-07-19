@@ -1,0 +1,32 @@
+FROM alpine:3.18
+
+# Install required packages
+RUN apk add --no-cache \
+    bash \
+    curl \
+    jq \
+    kubectl \
+    python3 \
+    py3-pip \
+    ca-certificates
+
+# Create a non-root user to run the job
+RUN addgroup -g 1000 opsbutler && \
+    adduser -u 1000 -G opsbutler -s /bin/bash -D opsbutler
+
+# Create directories for scripts and logs
+RUN mkdir -p /app/scripts /app/logs && \
+    chown -R opsbutler:opsbutler /app
+
+# Copy the entrypoint script
+COPY --chown=opsbutler:opsbutler scripts/job-entrypoint.sh /app/job-entrypoint.sh
+RUN chmod +x /app/job-entrypoint.sh
+
+# Set the working directory
+WORKDIR /app
+
+# Switch to the non-root user
+USER opsbutler
+
+# Set the entrypoint
+ENTRYPOINT ["/app/job-entrypoint.sh"]

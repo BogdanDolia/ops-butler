@@ -1,0 +1,115 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ops-butler-webui-config
+  namespace: ops-butler
+data:
+  SERVER_HOST: "0.0.0.0"
+  SERVER_PORT: "8080"
+  CORE_URL: "http://ops-butler-core:8080"
+  DB_TYPE: "sqlite"
+  DB_PATH: "/data/ops-butler.db"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops-butler-webui
+  namespace: ops-butler
+  labels:
+    app: ops-butler
+    component: webui
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
+  selector:
+    app: ops-butler
+    component: webui
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-butler-webui
+  namespace: ops-butler
+  labels:
+    app: ops-butler
+    component: webui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ops-butler
+      component: webui
+  template:
+    metadata:
+      labels:
+        app: ops-butler
+        component: webui
+    spec:
+      containers:
+      - name: webui
+        image: crcoerph/ops-butler-webui:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        envFrom:
+        - configMapRef:
+            name: ops-butler-webui-config
+        volumeMounts:
+        - name: data
+          mountPath: /data
+          readOnly: true
+        resources:
+          limits:
+            cpu: 300m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: data-ops-butler-core-0
+          readOnly: true
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ops-butler
+  namespace: ops-butler
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  rules:
+  - host: ops-butler.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ops-butler-webui
+            port:
+              number: 80
+      - path: /api/core
+        pathType: Prefix
+        backend:
+          service:
+            name: ops-butler-core
+            port:
+              number: 8080
