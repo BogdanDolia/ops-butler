@@ -326,10 +326,9 @@ func (s *Server) handleCollectLogsCommand(channelID, userID, userName string, ar
 		},
 	}
 
-	// Add namespace to parameters if provided
-	if namespace != "" {
-		task.Params["namespace"] = namespace
-	}
+	// Always add namespace parameter, even if empty
+	// This ensures the job-entrypoint.sh script can determine whether to search in a specific namespace or all namespaces
+	task.Params["namespace"] = namespace
 
 	if err := s.db.CreateTask(task); err != nil {
 		s.logger.Error("Failed to create task",
