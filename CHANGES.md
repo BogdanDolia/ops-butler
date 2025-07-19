@@ -1,37 +1,38 @@
-# Changes Made to Fix "fcntl64: symbol not found" Error
+# Changes
 
-## Issue Description
-The ops-butler-core container was failing with the error:
+## 2025-07-19: Fixed RBAC permissions for ops-butler-job service account
+
+### Issue
+The ops-butler-job service account was missing necessary permissions to list pods and nodes at the cluster scope and access the metrics API, resulting in the following errors:
+
 ```
-Error relocating /app/ops-butler-core: fcntl64: symbol not found
+Error from server (Forbidden): pods is forbidden: User "system:serviceaccount:ops-butler:ops-butler-job" cannot list resource "pods" in API group "" at the cluster scope
+Error from server (Forbidden): nodes is forbidden: User "system:serviceaccount:ops-butler:ops-butler-job" cannot list resource "nodes" in API group "" at the cluster scope
+[2025-07-19T18:23:20+00:00] Failed to get pod information
+[2025-07-19T18:23:20+00:00] Resource usage:
+error: Metrics API not available
 ```
 
-## Root Cause
-The issue was caused by a mismatch between the build and runtime environments:
-- The application was built in a glibc environment (golang:1.21 which is Debian-based)
-- But it was run in an Alpine container that uses musl libc
-- The binary was looking for glibc-specific symbols (like fcntl64) that aren't available in Alpine's musl libc
+### Changes Made
+1. Added a ClusterRole named `ops-butler-job` with the following permissions:
+   - Permission to list pods at the cluster scope
+   - Permission to get and list nodes at the cluster scope
+   - Permission to get and list node metrics
 
-## Solution
-Modified the Dockerfile.core to ensure compatibility between build and runtime environments:
+2. Added a ClusterRoleBinding named `ops-butler-job` that binds the ClusterRole to the `ops-butler-job` service account.
 
-1. Kept the build stage using the Debian-based `golang:1.21` image, which uses glibc
-2. Changed the runtime stage from Alpine to Debian-based (`debian:bullseye-slim`), which also uses glibc
-3. Updated the package installation commands to use apt-get instead of apk
-4. Updated the user creation commands to use Debian-compatible syntax:
-   - Changed `addgroup` to `groupadd`
-   - Changed `adduser` with Alpine options to `useradd` with Debian options
+These changes allow the jobs created by ops-butler to:
+- List pods across all namespaces (for the status check command)
+- List nodes in the cluster (for the status check command)
+- Access node metrics (for resource usage reporting)
 
-This ensures that both the build and runtime environments use glibc, which fixes the "fcntl64: symbol not found" error.
+### Files Modified
+- `/deploy/k8s/core.yaml`
+- `/deploy/k8s/core.yaml.example`
 
-## Alternative Solutions Considered
-1. Building the application in an Alpine-based Go image with musl libc
-   - This approach encountered compilation errors with the SQLite C code
-   - Attempted to use build tags like `sqlite_omit_load_extension`, but still encountered errors
+### How to Apply
+Apply the updated configuration to your Kubernetes cluster:
 
-2. Using a different database driver that doesn't require CGO
-   - This would require significant changes to the application code
-   - SQLite is a core requirement of the application
-
-## Testing
-The container was successfully built using the build-and-push.sh script, and the build completed without errors.
+```bash
+kubectl apply -f deploy/k8s/core.yaml
+```
